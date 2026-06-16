@@ -258,3 +258,33 @@ separately; alarm if escalation rate spikes.
 DPO once you have (correct, incorrect) pairs from analyst corrections. GRPO/RLVR makes
 sense when you want the model to explore beyond the demonstration distribution — this
 benchmark's verifier is already the right shape for that reward signal.
+
+---
+
+## Design Tradeoffs
+
+**Hybrid agent over end-to-end LM.** The PolicyAgent splits responsibility: deterministic rules enforce the required read sequence and safe mutation ordering; a trained classifier handles only the two genuinely uncertain decisions (check credit memos? send Slack?). This keeps the benchmark honest — the trained component can only influence outcomes it should influence — but it means the system would need restructuring before a pure LM could own the whole trace.
+
+**sklearn over LoRA for the core result.** A TF-IDF + LogisticRegression classifier is interpretable, CPU-friendly, and trainable in under a second. It scores 4/5 on the original tasks without a GPU. The LoRA path shows the production direction (small LM, adapter-based fine-tuning) but requires far more training data than the 28 fixture examples provide. Both are included because the comparison is informative: more data beats bigger model at this scale.
+
+**Integer cents throughout.** All money values are stored and compared as `int` (cents). No divisions, no `float()` casts on amounts. This eliminates floating-point rounding as a failure mode. The one float in the codebase is the 0.05-per-scan efficiency penalty, which applies to scores, not amounts.
+
+**Mock environment over live API.** The benchmark runs entirely in-memory against fixture CSVs. This makes runs deterministic, fast (~2 seconds), and reviewable without credentials. The tradeoff is that the mock is permissive — it accepts `None` arguments and returns empty results rather than raising errors, which can hide argument bugs. A production environment would validate inputs.
+
+**V2 synthetic traces share tasks with their eval set.** The V2 pipeline generates training traces by running the V1 PolicyAgent on synthetic tasks, then evaluates LoRA models on those same tasks. This is a known leakage: V2 LoRA scores on synthetic tasks are optimistic. The original five tasks (V1 fixtures) are clean — they are never touched during synthetic generation — and `task_missing_evidence` is held out entirely from both generation and synthetic training. See FINDINGS.md for details.
+
+---
+
+## What I Would Improve With More Time
+
+**More training data before a bigger model.** The LoRA result (0/5) shows that 28 examples is not enough for a generative model to learn this workflow. The next step is generating 200–500 traces using the data flywheel in `run_benchmark_v2.py`, not switching to a larger base model.
+
+**Argument validation in the mock.** `search_invoices(customer_id=None)` currently silently returns nothing. Adding a `ValueError` for missing required fields would make agent bugs immediately visible rather than manifesting as wrong resolutions downstream.
+
+**Idempotency guards on mutations.** Calling `update_case` or `create_exception` twice silently overwrites. A billing-safe environment should flag or reject duplicate mutation calls. The idempotency tests in `tests/test_environment.py` document the current behavior explicitly.
+
+**Hidden eval split with no leakage.** The V2 synthetic tasks should be split at generation time: half used for training traces, half held out for eval only. Currently only `task_missing_evidence` is truly held out.
+
+**Structured decoding.** The LoRA agent parses free-text JSON output with a regex fallback. Constrained generation (e.g., `outlines` library) would eliminate parse failures entirely and remove the need for the fallback to PolicyAgent.
+
+**Cost and latency metrics.** The scorer tracks tool calls and broad scans but not wall-clock latency or token count. For a production system where Acme is choosing between models on cost vs. accuracy, these matter as much as pass rate.

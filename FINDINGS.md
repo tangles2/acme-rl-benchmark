@@ -199,3 +199,19 @@ The mock environment accepts any arguments and returns an empty result when noth
 `MAX_STEPS` prevents infinite loops, but nothing penalizes an agent that calls `search_invoices` three times with the same arguments. The current `tool_efficiency` metric only penalizes broad scans, not redundant narrow calls. A reward-hacking model could call the same safe read tool repeatedly to pad its trace before calling `final_answer`, and the scorer would not catch it.
 
 **Fix:** Track call counts per tool per run. Penalize any tool called more than once with identical arguments (after the first call, the result is already in the trace — there is no new information to gain).
+
+---
+
+## V2 Train/Eval Leakage Note
+
+The V2 pipeline has a known leakage between the synthetic training set and the synthetic eval set.
+
+**What happens:** `build_combined_traces()` runs the V1 `PolicyAgent` on all 8 synthetic tasks and collects those traces as additional training data. `V2Benchmark` then evaluates the LoRA models on those same 8 synthetic tasks. The training data is derived directly from the eval set.
+
+**What this means for results:** V2 LoRA scores on synthetic tasks are optimistic — the model has seen (via its training traces) the exact tasks it is being evaluated on. These numbers should not be read as generalization performance.
+
+**What is clean:**
+- The 5 original tasks from the fixtures are never touched during synthetic trace generation. V2 scores on those 5 tasks are valid.
+- `task_missing_evidence` is held out from synthetic generation entirely (`EVAL_TASK_IDS` in `synthetic.py`). Its score is a true out-of-distribution result.
+
+**The fix:** Split synthetic tasks at generation time — generate traces for tasks 1–4, hold out tasks 5–8 for eval only. With the current 8 synthetic tasks this would leave only 4 training examples per type, so it requires generating more task variants first. The `SyntheticMockEnvironment` and `V2Benchmark` are already structured to support this; it is a data-authoring task, not an architecture change.
