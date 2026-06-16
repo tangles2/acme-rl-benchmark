@@ -163,3 +163,39 @@ The benchmark setup is the real deliverable here. The environment resets cleanly
 8 scoring criteria are tied to business-correct outcomes, reward hacking is caught by
 the verifier, and the pipeline is reproducible from a single command. The fine-tuned
 model being small is expected. The benchmark being trustworthy is what matters.
+
+---
+
+## Known Benchmark Gaps
+
+These are edge cases that exist in real collections workflows but are not currently tested by the benchmark. They would be the first additions before moving this to production.
+
+### 1. Multiple credit memos on a single invoice
+
+All fixtures have at most one credit memo per invoice. A real case might have CM-101 and CM-102 both partially offsetting the same invoice. The scorer checks `paid + credit >= invoice_amount`, but nothing verifies that the agent correctly *sums* multiple memos rather than stopping at the first one it finds. An agent that reads only the most recent credit memo would pass every current test and fail in production.
+
+**Fix:** Add a task where two credit memos together cover the gap, but neither alone does. The agent must call `search_credit_memos` and sum both results.
+
+### 2. Overpayment
+
+No task tests the case where `payment_amount > invoice_amount`. An agent that naively computes `remaining = invoice - paid` would produce a negative exception amount. The benchmark has no assertion that checks for this, so the bug would be invisible until a real customer overpaid.
+
+**Fix:** Add a task with `payment_amount = invoice_amount + N` and assert that the case resolves as `paid_in_full` with no exception opened.
+
+### 3. Payment referencing the wrong invoice
+
+All fixture payments have the correct `invoice_id` for the case being worked. In production, a customer might send a wire that gets applied to the wrong invoice. If the agent naively accepts any payment for the right `customer_id`, it would resolve the case incorrectly. The current scorer does not check which `invoice_id` a payment references.
+
+**Fix:** Add a task where a payment exists for the customer but points to a different invoice. The agent must filter by `invoice_id`, not just `customer_id`, and escalate as `missing_payment_evidence`.
+
+### 4. Silent tool failures from bad argument types
+
+The mock environment accepts any arguments and returns an empty result when nothing matches. A real API would reject `search_invoices(customer_id=None)` with a 400 error. Because the mock is permissive, an agent with a bug in its argument builder silently gets an empty result, proceeds to escalate, and the only signal is a wrong `resolution` — not a clear argument error. This makes debugging harder than it needs to be and can mask a whole class of failure.
+
+**Fix:** Add argument validation to the mock (raise `ValueError` on `None` required fields). Add a separate `tool_call_invalid_rate` metric to the scorer.
+
+### 5. Repeated narrow tool calls (agent loops)
+
+`MAX_STEPS` prevents infinite loops, but nothing penalizes an agent that calls `search_invoices` three times with the same arguments. The current `tool_efficiency` metric only penalizes broad scans, not redundant narrow calls. A reward-hacking model could call the same safe read tool repeatedly to pad its trace before calling `final_answer`, and the scorer would not catch it.
+
+**Fix:** Track call counts per tool per run. Penalize any tool called more than once with identical arguments (after the first call, the result is already in the trace — there is no new information to gain).
