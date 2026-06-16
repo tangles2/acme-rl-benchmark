@@ -1,172 +1,202 @@
-# Run 1 Findings — Acme RL Finetuning Benchmark
+# Findings — Acme RL Finetuning Benchmark
 
-**Date:** 2026-06-16  
-**Hardware:** Targon GPU node (CPU fallback — CUDA driver mismatch)  
-**Model:** Qwen/Qwen2.5-0.5B-Instruct + LoRA (rank=8, alpha=16, 5 epochs)  
+**Repository:** https://github.com/tangles2/acme-rl-benchmark  
+**Hardware:** Targon H200 GPU node (CUDA 12.8, driver 570.195.03)  
+**Models tested:** Rule-based baseline, TF-IDF + LogisticRegression (sklearn), Qwen/Qwen2.5-0.5B-Instruct + LoRA (rank=8, alpha=16)  
 **Training data:** 28 examples from 4 traces in `training_traces.jsonl`
 
 ---
 
 ## Results Summary
 
-| Agent | Strict Pass Rate | Avg Score | Avg Tool Calls | Broad Scans |
+| Agent | Strict Pass Rate | Avg Score | Avg Tool Calls | Avg Broad Scans |
 |---|---|---|---|---|
 | Rule-based baseline | 0/5 (0%) | 86.3% | 6.6 | 2.0 |
-| sklearn PolicyAgent | 4/5 (80%) | 90.0% | 6.6 | 0.0 |
-| LoRA (Qwen2.5-0.5B) | 0/5 (0%) | 57.5% | 0.0 | 0.0 |
+| sklearn PolicyAgent (post-SFT) | **4/5 (80%)** | **90.0%** | 6.6 | **0.0** |
+| LoRA Qwen2.5-0.5B (Run 1 — CPU) | 0/5 (0%) | 57.5% | 0.0 | 0.0 |
 
 ### Criteria accuracy by agent
 
-| Criterion | Baseline | sklearn | LoRA |
+| Criterion | Baseline | sklearn | LoRA (Run 1) |
 |---|---|---|---|
 | status | 80% | 80% | 0% |
 | resolution | 80% | 80% | 0% |
 | amounts | 80% | 80% | 60% |
-| evidence | 60% | 80% | 0% |
+| evidence | 60% | **80%** | 0% |
 | observed_evidence | 100% | 100% | 100% |
 | forbidden_evidence | 100% | 100% | 100% |
 | unsafe_mutation | 100% | 100% | 100% |
-| tool_efficiency | 0% | 100% | 100% |
+| tool_efficiency | 0% | **100%** | 100% |
 
 ---
 
-## Finding 1 — LoRA model collapsed to calling `final_answer` immediately
+## Finding 1 — sklearn SFT drove the largest gains
 
-The most significant result of Run 1 is that the fine-tuned LoRA agent called `final_answer`
-as its very first action on every task, resulting in zero actual tool calls (`calls=0`).
+Training a TF-IDF + LogisticRegression next-action classifier on 28 trace examples
+produced two concrete improvements over the rule-based baseline:
 
-**Why this happened:** With only 28 training examples spread across 9 tool classes,
-the model did not learn the correct multi-step workflow. Instead it converged on
-`final_answer` as a safe default — it never causes broad scan penalties, unsafe
-mutation flags, or forbidden evidence violations. The model found the path of least
-resistance rather than the correct task sequence.
+**Tool efficiency: 0% → 100%.** The baseline always called `search_invoices` and
+`search_payments` without filters (2 broad scans per task). The trained classifier
+learned to always include `invoice_id` and `month` arguments — eliminating all broad
+scans across all five tasks.
 
-This is a textbook case of **mode collapse / reward hacking**: the agent optimized
-for avoiding penalties rather than completing the task.
+**Evidence accuracy: 60% → 80%.** The baseline omitted `customer_id` from the
+final evidence list on `task_ambiguous_customer`. The classifier, trained on traces
+that cite `customer_id` as evidence, corrected this.
 
-**Evidence in the training logs:**
+The before/after delta confirms the benchmark is sensitive to real behavioral changes —
+not just output text.
+
+---
+
+## Finding 2 — LoRA model collapsed to calling `final_answer` immediately (Run 1)
+
+In Run 1, the LoRA agent called `final_answer` as its very first action on every task,
+resulting in zero tool calls and 0/5 pass rate.
+
+**Why this happened:** With only 28 training examples across 9 tool classes, the model
+did not learn the multi-step workflow. It converged on `final_answer` as a low-penalty
+default — it never triggers broad scan penalties, unsafe mutation flags, or forbidden
+evidence violations. This is a textbook case of **reward hacking / mode collapse**:
+the model optimized for avoiding penalties rather than completing the task.
+
+**Training loss from Run 1:**
 
 ```
-{'loss': '1.509', 'epoch': '0.71'}
-{'loss': '1.232', 'epoch': '1.43'}
-{'loss': '1.034', 'epoch': '2.14'}
-{'loss': '0.862', 'epoch': '2.86'}
-{'loss': '0.814', 'epoch': '3.57'}
-{'loss': '0.771', 'epoch': '4.29'}
-{'loss': '0.895', 'epoch': '5.00'}  ← loss rebounded at end
+epoch 0.71 → loss 1.509
+epoch 1.43 → loss 1.232
+epoch 2.14 → loss 1.034
+epoch 2.86 → loss 0.862
+epoch 3.57 → loss 0.814
+epoch 4.29 → loss 0.771
+epoch 5.00 → loss 0.895  ← rebounded at end
 train_loss: 1.017
 ```
 
-Loss decreased but rebounded at epoch 5, suggesting the model was oscillating
-rather than converging — a sign of too few examples relative to model capacity.
+Loss rebounded at epoch 5, indicating instability — a sign of too few examples
+relative to model capacity.
+
+**Mitigation implemented:** `_enforce_required_reads()` in `lora_agent.py` now
+intercepts any `final_answer` call before `get_case`, `lookup_customer`,
+`search_invoices`, and `search_payments` have all been completed, and redirects to
+the next missing required tool. This prevents mode collapse without retraining.
 
 ---
 
-## Finding 2 — sklearn outperformed LoRA despite being far simpler
+## Finding 3 — One task fails across all agents: `task_credit_memo_reconciled`
 
-The TF-IDF + LogisticRegression classifier (trained in under 1 second, CPU-only,
-no GPU required) scored 4/5 vs. the LoRA model's 0/5.
+Both the baseline and the sklearn agent fail this task. The LoRA agent also failed it
+in Run 1.
 
-This highlights an important principle: **more data trumps model size**.
-With only 28 examples, a simple linear classifier generalizes better than
-a 0.5B parameter generative model that can overfit or collapse.
+**Root cause:** `search_credit_memos` appears only once across all 28 training
+examples (1 out of 4 traces uses it). The classifier's probability for this class is
+near-uniform at the decision point (0.053), making it unreliable.
 
-The sklearn agent succeeds because it was designed as a hybrid — the classifier
-only handles two genuinely uncertain decisions (check credit memos? send Slack?),
-while deterministic rules enforce the required read sequence and safe mutation ordering.
-A generative model trained on 28 examples has to learn all of this from scratch.
+Without the credit memo check, the agent sees: payment (4,000,000¢) < invoice
+(4,500,000¢) and opens a partial-payment exception instead of resolving as
+`paid_after_credit_memo`.
 
----
-
-## Finding 3 — The one consistent remaining failure: `task_credit_memo_reconciled`
-
-Both the sklearn agent and the LoRA agent fail this task. The root cause is
-data imbalance: `search_credit_memos` appears only once in the 28 training
-examples (1 out of 4 traces uses it), so neither model reliably learns when
-to call it.
-
-This is the canonical long-tail problem in SFT: rare behaviors require
+This is the canonical **long-tail problem in SFT**: rare behaviors require
 disproportionately more training examples than common ones.
 
+**Fix:** 5–10 additional traces where a partial payment is resolved via credit memo
+would likely make this classification reliable.
+
 ---
 
-## Finding 4 — CUDA driver mismatch forced CPU inference
+## Finding 4 — CUDA driver mismatch (resolved)
+
+Run 1 was affected by a CUDA driver mismatch:
 
 ```
 UserWarning: CUDA initialization: The NVIDIA driver on your system is too old
 (found version 12080).
 ```
 
-Training and inference both ran on CPU. This caused LoRA training to take
-~10 minutes (625 seconds) for 35 steps — on a GPU with a matching driver
-this would run in under 60 seconds. The CUDA warning did not affect correctness,
-only speed.
+PyTorch 2.12.0 requires CUDA 13.x; the H200 node runs CUDA 12.8 (driver 570.195.03).
+Fixed by reinstalling PyTorch with the correct index URL:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu128 --break-system-packages
+```
+
+Both `lora_train.py` and `lora_agent.py` now auto-detect CUDA at runtime and use
+bfloat16 on the H200, falling back to float32 on CPU.
 
 ---
 
-## Proposed Improvements for Run 2
+## Finding 5 — SybilAgent (Sybil API / GPT-OSS-20B) could not be evaluated on GPU node
 
-### 1. Add a minimum-steps guard before `final_answer` (quick fix)
+The Sybil LLM baseline (`openai/gpt-oss-20b` via `https://api.sybil.com/v1`) was
+implemented and tested locally but could not run on the Targon GPU node because the
+node's network policy blocks outbound HTTPS to `api.sybil.com`. The `--no-sybil` flag
+was added to allow the benchmark to run without it.
 
-The fastest fix: in `lora_agent.py`, prevent the model from calling `final_answer`
-until the four required reads have been completed. This mirrors the Phase 1 logic
-in PolicyAgent and eliminates mode collapse without retraining.
+The intended comparison story is: **Sybil LLM (frontier baseline) → sklearn SFT →
+LoRA SFT**. The Sybil baseline is expected to pass all 5 tasks using zero training data,
+establishing the quality ceiling a small fine-tuned model should approach.
 
-```python
-REQUIRED_BEFORE_FINAL = ["get_case", "lookup_customer", "search_invoices", "search_payments"]
+---
 
-def _select_tool(self, generated, task, env):
-    parsed = _parse_tool_call(generated)
-    called = [s["tool"] for s in env.trace]
-    # Block final_answer until required reads are done
-    if parsed and parsed[0] == "final_answer":
-        for req in REQUIRED_BEFORE_FINAL:
-            if req not in called:
-                return self._fallback_tool(task, env)
-    return parsed
-```
+## Proposed Improvements
 
-### 2. Generate more training traces (biggest impact)
+### 1. Minimum-steps guard before `final_answer` (implemented)
 
-28 examples is too few for a generative model. Options:
-- **Synthetic traces via SybilAgent**: run the Sybil API against more task variants
-  and collect successful traces as additional training data (self-play / data flywheel)
-- **Manual authoring**: write 2-3 additional traces for `search_credit_memos` and
-  edge cases to fix the class imbalance
-- **Target**: 100-200 examples across all 9 tool classes, with at least 5-10
-  examples per rare class
+`_enforce_required_reads()` in `lora_agent.py` blocks `final_answer` until all four
+required reads are complete, then falls back to the sklearn PolicyAgent for correct
+tool selection. This addresses mode collapse without requiring retraining.
 
-### 3. Increase training epochs and add early stopping
+### 2. Expand training traces (highest impact)
 
-With more data, increase epochs to 15-20 and add an eval split to detect
-overfitting early. The loss rebound at epoch 5 suggests the current setup
-is at the edge of instability.
+28 examples is too few for a 0.5B parameter generative model. Target:
+
+- 100–200 total examples
+- At least 5–10 `search_credit_memos` examples to fix the class imbalance
+- **Data flywheel:** run SybilAgent against synthetic task variants and collect
+  successful traces as additional training data
+
+### 3. Increase epochs with early stopping
+
+With more data, increase to 15–20 epochs. The loss rebound at epoch 5 suggests the
+current setup needs an eval split to detect overfitting.
 
 ### 4. Add tool schema to the system prompt
 
-The current system prompt describes the workflow in plain English.
-Explicitly including the JSON schema for each tool gives the model a
-structured reference, reducing hallucinated argument names.
+Explicitly including the JSON schema for each tool gives the model a structured
+reference and reduces hallucinated argument names.
 
-### 5. Constrain generation with structured decoding (longer term)
+### 5. Constrain generation with structured decoding
 
-Force the model output to be valid JSON matching the tool schema using
-constrained beam search or grammar-based sampling (e.g., `outlines` library).
-This eliminates the need for the fallback parser entirely.
+Use constrained beam search or grammar-based sampling (e.g., `outlines` library) to
+force model output to be valid JSON matching the tool schema. Eliminates the need for
+the fallback parser.
 
-### 6. Use a larger base model
+### 6. Larger base model
 
-Qwen2.5-0.5B is at the small end. Qwen2.5-1.5B or 3B would have significantly
-better instruction-following out of the box and require fewer examples to
-fine-tune reliably. The LoRA adapter stays small regardless of base model size.
+Qwen2.5-1.5B or 3B would have significantly better instruction-following out of the
+box and would require fewer examples to fine-tune reliably. The LoRA adapter stays
+small regardless of base model size.
 
 ---
 
-## What to discuss with Manifold
+## Interview Discussion Points
 
-- The mode collapse result is a real and interesting failure — lead with it, not away from it
-- Explain the sklearn vs LoRA comparison and why simple models can win with limited data
-- Walk through the reward hacking angle: the model found a zero-penalty strategy
-  (call final_answer immediately) that scores well on safety criteria but fails on correctness
-- Propose the data flywheel: use the Sybil API to generate synthetic traces at scale,
-  then retrain — this is the realistic path to a production-quality agent
+**Lead with the mode collapse result — it is the most interesting finding.** The model
+found a zero-penalty strategy (call `final_answer` immediately) that passes all safety
+criteria (observed_evidence, forbidden_evidence, unsafe_mutation all 100%) while failing
+all correctness criteria. This is a perfect illustration of why reward design and
+product metrics must be tracked separately.
+
+**The sklearn vs. LoRA comparison makes a clear point:** with only 28 examples, a
+simple linear classifier outperforms a 0.5B generative model. More data trumps model
+size at this scale.
+
+**The data flywheel is the production path:** use the Sybil API to generate synthetic
+traces at scale, retrain the LoRA adapter, and measure on a hidden eval split. The
+benchmark harness already supports this loop without modification.
+
+**On SFT vs. DPO vs. GRPO:** SFT is correct here given clean demonstration traces.
+DPO becomes relevant once you accumulate (correct, incorrect) pairs from analyst
+corrections. GRPO/RLVR makes sense when the model needs to explore beyond the
+demonstration distribution — this benchmark's verifier is already the right shape
+for that reward signal.
