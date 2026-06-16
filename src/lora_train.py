@@ -197,9 +197,16 @@ def lora_train(
     Returns:
         LoRAAgent — a benchmark-compatible agent using the fine-tuned model.
     """
+    # Auto-detect GPU and choose optimal dtype
+    use_cuda = torch.cuda.is_available()
+    use_bf16 = use_cuda and torch.cuda.is_bf16_supported()
+    use_fp16 = use_cuda and not use_bf16
+    dtype    = torch.bfloat16 if use_bf16 else (torch.float16 if use_fp16 else torch.float32)
+
     if verbose:
         print(f"\n[lora_train] Loading base model: {base_model}")
         print(f"[lora_train] LoRA config: rank={lora_rank}, alpha={lora_alpha}, epochs={epochs}")
+        print(f"[lora_train] Device: {'GPU (cuda)' if use_cuda else 'CPU'}  dtype: {dtype}")
 
     # Load tokenizer + model
     tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True)
@@ -208,18 +215,18 @@ def lora_train(
 
     model = AutoModelForCausalLM.from_pretrained(
         base_model,
-        torch_dtype=torch.float32,   # float32 for CPU stability
+        dtype=dtype,
         trust_remote_code=True,
     )
 
     # Apply LoRA
     lora_cfg = LoraConfig(
-        task_type     = TaskType.CAUSAL_LM,
-        r             = lora_rank,
-        lora_alpha    = lora_alpha,
-        target_modules = ["q_proj", "v_proj"],   # attention keys targeted
-        lora_dropout  = 0.05,
-        bias          = "none",
+        task_type      = TaskType.CAUSAL_LM,
+        r              = lora_rank,
+        lora_alpha     = lora_alpha,
+        target_modules = ["q_proj", "v_proj"],
+        lora_dropout   = 0.05,
+        bias           = "none",
     )
     model = get_peft_model(model, lora_cfg)
     if verbose:
@@ -228,23 +235,23 @@ def lora_train(
     # Build dataset
     dataset = build_dataset(tokenizer)
 
-    # Training arguments — CPU-friendly, no FP16
+    # Training arguments — auto-configured for GPU or CPU
     ARTIFACTS.mkdir(exist_ok=True)
     training_args = TrainingArguments(
-        output_dir              = str(ARTIFACTS / "lora_checkpoints"),
-        num_train_epochs        = epochs,
+        output_dir                  = str(ARTIFACTS / "lora_checkpoints"),
+        num_train_epochs            = epochs,
         per_device_train_batch_size = 1,
         gradient_accumulation_steps = 4,
-        learning_rate           = lr,
-        lr_scheduler_type       = "cosine",
-        warmup_ratio            = 0.1,
-        save_strategy           = "no",
-        logging_steps           = 5,
-        fp16                    = False,
-        bf16                    = False,
-        dataloader_num_workers  = 0,
-        report_to               = "none",
-        remove_unused_columns   = False,
+        learning_rate               = lr,
+        lr_scheduler_type           = "cosine",
+        warmup_steps                = 5,
+        save_strategy               = "no",
+        logging_steps               = 5,
+        fp16                        = use_fp16,
+        bf16                        = use_bf16,
+        dataloader_num_workers      = 0,
+        report_to                   = "none",
+        remove_unused_columns       = False,
     )
 
     trainer = Trainer(
@@ -268,15 +275,4 @@ def lora_train(
     model.save_pretrained(str(ADAPTER_PATH))
     tokenizer.save_pretrained(str(ADAPTER_PATH))
     if verbose:
-        print(f"[lora_train] Adapter saved → {ADAPTER_PATH}")
-
-    return LoRAAgent(adapter_path=str(ADAPTER_PATH), base_model=base_model)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    agent = lora_train(verbose=True)
-    print(f"\nLoRAAgent ready: {agent.name}")
+        print(f"[lora_train] Adapter saved →

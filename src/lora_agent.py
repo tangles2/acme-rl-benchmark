@@ -140,7 +140,12 @@ class LoRAAgent:
         if adapter_path is None:
             adapter_path = str(Path(__file__).parent.parent / "artifacts" / "lora_adapter")
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        use_bf16    = self.device.type == "cuda" and torch.cuda.is_bf16_supported()
+        dtype       = torch.bfloat16 if use_bf16 else torch.float32
+
         print(f"[LoRAAgent] Loading adapter from {adapter_path} ...")
+        print(f"[LoRAAgent] Device: {self.device}  dtype: {dtype}")
 
         self.tokenizer = AutoTokenizer.from_pretrained(adapter_path, trust_remote_code=True)
         if self.tokenizer.pad_token is None:
@@ -148,10 +153,11 @@ class LoRAAgent:
 
         base = AutoModelForCausalLM.from_pretrained(
             base_model,
-            torch_dtype=torch.float32,
+            dtype=dtype,
             trust_remote_code=True,
         )
         self.model = PeftModel.from_pretrained(base, adapter_path)
+        self.model.to(self.device)
         self.model.eval()
         self.max_new_tokens = max_new_tokens
 
@@ -160,6 +166,7 @@ class LoRAAgent:
     def _generate(self, task: dict, trace: list[dict]) -> str:
         prompt = _build_prompt(task, trace)
         inputs = self.tokenizer(prompt, return_tensors="pt")
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
         with torch.no_grad():
             output_ids = self.model.generate(
                 **inputs,
@@ -209,13 +216,4 @@ class LoRAAgent:
     ) -> tuple[str, dict]:
         """
         Guard: if the model tries to call final_answer before completing the
-        four required reads, redirect to the next missing required tool instead.
-        This prevents mode collapse where the model shortcuts to final_answer.
-        """
-        REQUIRED = ["get_case", "lookup_customer", "search_invoices", "search_payments"]
-        called   = [s["tool"] for s in env.trace]
-
-        if parsed is not None and parsed[0] == "final_answer":
-            for req in REQUIRED:
-                if req not in called:
-   
+        four required reads, redirect to the next missing
