@@ -2,7 +2,7 @@
 LoRA fine-tuning pipeline for the Acme RL benchmark.
 
 Loads Qwen/Qwen2.5-0.5B-Instruct from HuggingFace, applies LoRA,
-and fine-tunes it on (context → next_tool_call) step pairs extracted
+and fine-tunes it on (context -> next_tool_call) step pairs extracted
 from training_traces.jsonl.
 
 After training the adapter is saved to artifacts/lora_adapter/.
@@ -37,13 +37,13 @@ from src.lora_agent import LoRAAgent
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-ROOT          = Path(__file__).parent.parent
-FIXTURES      = ROOT / "fixtures" / "rl-finetuning"
-ARTIFACTS     = ROOT / "artifacts"
-ADAPTER_PATH  = ARTIFACTS / "lora_adapter"
-TRACES_PATH   = FIXTURES / "training_traces.jsonl"
+ROOT         = Path(__file__).parent.parent
+FIXTURES     = ROOT / "fixtures" / "rl-finetuning"
+ARTIFACTS    = ROOT / "artifacts"
+ADAPTER_PATH = ARTIFACTS / "lora_adapter"
+TRACES_PATH  = FIXTURES / "training_traces.jsonl"
 
-BASE_MODEL    = "Qwen/Qwen2.5-0.5B-Instruct"
+BASE_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
 # ---------------------------------------------------------------------------
 # ChatML prompt template (Qwen2.5 uses ChatML natively)
@@ -57,8 +57,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def _format_step_history(messages: list[dict], up_to: int) -> str:
-    """Build a text summary of the tool calls made before step `up_to`."""
+def _format_step_history(messages, up_to):
     if up_to == 0:
         return "No steps taken yet."
     parts = []
@@ -68,20 +67,17 @@ def _format_step_history(messages: list[dict], up_to: int) -> str:
         args = json.dumps(tc.get("arguments", {}), separators=(",", ":"))
         res  = msg.get("tool_result", "")
         res_str = json.dumps(res, separators=(",", ":")) if isinstance(res, (dict, list)) else str(res)
-        # Keep result compact — just the first 120 chars
-        parts.append(f"  {name}({args}) → {res_str[:120]}")
+        parts.append(f"  {name}({args}) -> {res_str[:120]}")
     return "\n".join(parts)
 
 
-def _make_prompt(task_input: str, messages: list[dict], step_idx: int) -> str:
-    """Full ChatML prompt for predicting the tool at `step_idx`."""
+def _make_prompt(task_input, messages, step_idx):
     history = _format_step_history(messages, step_idx)
     user_content = (
         f"Task: {task_input}\n\n"
         f"Steps taken so far:\n{history}\n\n"
         "What is the next tool call?"
     )
-    # Qwen2.5 ChatML format
     return (
         "<|im_start|>system\n"
         f"{SYSTEM_PROMPT}<|im_end|>\n"
@@ -91,8 +87,7 @@ def _make_prompt(task_input: str, messages: list[dict], step_idx: int) -> str:
     )
 
 
-def _make_completion(msg: dict) -> str:
-    """The target completion: compact JSON of the tool call at this step."""
+def _make_completion(msg):
     tc   = msg.get("tool_call", {})
     name = tc.get("name", "")
     args = tc.get("arguments", {})
@@ -103,14 +98,7 @@ def _make_completion(msg: dict) -> str:
 # Dataset construction
 # ---------------------------------------------------------------------------
 
-def build_dataset(tokenizer, max_length: int = 512) -> Dataset:
-    """
-    Extract (prompt, completion) pairs from training_traces.jsonl,
-    tokenize them, and return a HuggingFace Dataset.
-
-    Each (step_i → step_i+1) pair is one training example.
-    The loss is computed only on the completion tokens (prompt tokens are masked).
-    """
+def build_dataset(tokenizer, max_length=512):
     prompts     = []
     completions = []
 
@@ -122,40 +110,35 @@ def build_dataset(tokenizer, max_length: int = 512) -> Dataset:
             trace      = json.loads(line)
             task_input = trace.get("input", "")
             messages   = trace.get("messages", [])
-
             for i, msg in enumerate(messages):
                 prompts.append(_make_prompt(task_input, messages, i))
                 completions.append(_make_completion(msg))
 
     print(f"[lora_train] Built {len(prompts)} training examples from {TRACES_PATH.name}")
 
-    # Tokenize: full_text = prompt + completion + eos
-    input_ids_list  = []
-    labels_list     = []
-    attention_list  = []
+    input_ids_list = []
+    labels_list    = []
+    attention_list = []
 
     for prompt, completion in zip(prompts, completions):
         full_text = prompt + completion + tokenizer.eos_token
 
-        prompt_enc      = tokenizer(prompt,     add_special_tokens=False)
-        full_enc        = tokenizer(full_text,  add_special_tokens=False,
-                                    max_length=max_length, truncation=True)
+        prompt_enc     = tokenizer(prompt,    add_special_tokens=False)
+        full_enc       = tokenizer(full_text, add_special_tokens=False,
+                                   max_length=max_length, truncation=True)
 
-        input_ids       = full_enc["input_ids"]
-        attention_mask  = full_enc["attention_mask"]
-        prompt_len      = len(prompt_enc["input_ids"])
+        input_ids      = full_enc["input_ids"]
+        attention_mask = full_enc["attention_mask"]
+        prompt_len     = len(prompt_enc["input_ids"])
+        labels         = [-100] * prompt_len + input_ids[prompt_len:]
 
-        # Mask the prompt in labels so loss is only on completion tokens
-        labels = [-100] * prompt_len + input_ids[prompt_len:]
-
-        # Pad to max_length
         pad_len = max_length - len(input_ids)
         if pad_len > 0:
             input_ids      = input_ids      + [tokenizer.pad_token_id] * pad_len
             attention_mask = attention_mask + [0] * pad_len
             labels         = labels         + [-100] * pad_len
         else:
-            labels         = labels[:max_length]
+            labels = labels[:max_length]
 
         input_ids_list.append(input_ids[:max_length])
         attention_list.append(attention_mask[:max_length])
@@ -173,29 +156,17 @@ def build_dataset(tokenizer, max_length: int = 512) -> Dataset:
 # ---------------------------------------------------------------------------
 
 def lora_train(
-    base_model:   str  = BASE_MODEL,
-    lora_rank:    int  = 8,
-    lora_alpha:   int  = 16,
-    epochs:       int  = 5,
-    lr:           float = 2e-4,
-    verbose:      bool  = True,
-) -> LoRAAgent:
+    base_model  = BASE_MODEL,
+    lora_rank   = 8,
+    lora_alpha  = 16,
+    epochs      = 5,
+    lr          = 2e-4,
+    verbose     = True,
+):
     """
-    Fine-tune `base_model` with LoRA on the Acme training traces.
-
+    Fine-tune base_model with LoRA on the Acme training traces.
+    Auto-detects GPU and uses bfloat16/fp16 when available.
     Returns a LoRAAgent wrapping the fine-tuned adapter.
-    Adapter is also saved to artifacts/lora_adapter/.
-
-    Args:
-        base_model:  HuggingFace model ID (default: Qwen/Qwen2.5-0.5B-Instruct)
-        lora_rank:   LoRA rank r (default: 8, controls adapter capacity)
-        lora_alpha:  LoRA scaling factor (default: 16)
-        epochs:      Training epochs (default: 5)
-        lr:          Learning rate (default: 2e-4)
-        verbose:     Print progress (default: True)
-
-    Returns:
-        LoRAAgent — a benchmark-compatible agent using the fine-tuned model.
     """
     # Auto-detect GPU and choose optimal dtype
     use_cuda = torch.cuda.is_available()
@@ -208,7 +179,6 @@ def lora_train(
         print(f"[lora_train] LoRA config: rank={lora_rank}, alpha={lora_alpha}, epochs={epochs}")
         print(f"[lora_train] Device: {'GPU (cuda)' if use_cuda else 'CPU'}  dtype: {dtype}")
 
-    # Load tokenizer + model
     tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -219,7 +189,6 @@ def lora_train(
         trust_remote_code=True,
     )
 
-    # Apply LoRA
     lora_cfg = LoraConfig(
         task_type      = TaskType.CAUSAL_LM,
         r              = lora_rank,
@@ -232,10 +201,8 @@ def lora_train(
     if verbose:
         model.print_trainable_parameters()
 
-    # Build dataset
     dataset = build_dataset(tokenizer)
 
-    # Training arguments — auto-configured for GPU or CPU
     ARTIFACTS.mkdir(exist_ok=True)
     training_args = TrainingArguments(
         output_dir                  = str(ARTIFACTS / "lora_checkpoints"),
@@ -271,8 +238,18 @@ def lora_train(
 
     trainer.train()
 
-    # Save adapter
     model.save_pretrained(str(ADAPTER_PATH))
     tokenizer.save_pretrained(str(ADAPTER_PATH))
     if verbose:
-        print(f"[lora_train] Adapter saved →
+        print(f"[lora_train] Adapter saved -> {ADAPTER_PATH}")
+
+    return LoRAAgent(adapter_path=str(ADAPTER_PATH), base_model=base_model)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    agent = lora_train(verbose=True)
+    print(f"\nLoRAAgent ready: {agent.name}")
