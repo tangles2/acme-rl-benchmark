@@ -1,0 +1,3 @@
+credit_memo_id,customer_id,invoice_id,amount_cents,reason,issued_at
+CM-102,cus_initech,INV-2026-0507,500000,service_credit,2026-05-22
+CM-103,cus_globex,INV-2026-0402,1200000,prior_month_adjustment,2026-04-19

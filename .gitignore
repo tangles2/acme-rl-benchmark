@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Generated artifacts (recreated by running the benchmark)
+artifacts/next_action_policy.pkl
+artifacts/lora_adapter/
+artifacts/lora_checkpoints/
+
+# Keep artifacts/ dir tracked
+!artifacts/.gitkeep
+
+# Secrets
+.env
+*.env
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

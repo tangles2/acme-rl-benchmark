@@ -1,0 +1,57 @@
+[
+  {
+    "case_id": "case-1001",
+    "customer_id": "cus_northwind",
+    "customer_name": "Northwind Robotics",
+    "invoice_id": "INV-2026-0413",
+    "month": "2026-04",
+    "status": "open",
+    "resolution": null,
+    "exception": null,
+    "slack_draft": null
+  },
+  {
+    "case_id": "case-1002",
+    "customer_id": "cus_globex",
+    "customer_name": "Globex",
+    "invoice_id": "INV-2026-0420",
+    "month": "2026-04",
+    "status": "open",
+    "resolution": null,
+    "exception": null,
+    "slack_draft": null
+  },
+  {
+    "case_id": "case-1003",
+    "customer_id": "cus_initech",
+    "customer_name": "Initech",
+    "invoice_id": "INV-2026-0507",
+    "month": "2026-05",
+    "status": "open",
+    "resolution": null,
+    "exception": null,
+    "slack_draft": null
+  },
+  {
+    "case_id": "case-1004",
+    "customer_id": "cus_acme_hardware",
+    "customer_name": "Acme Hardware",
+    "invoice_id": "INV-2026-0522",
+    "month": "2026-05",
+    "status": "open",
+    "resolution": null,
+    "exception": null,
+    "slack_draft": null
+  },
+  {
+    "case_id": "case-1005",
+    "customer_id": "cus_umbrella",
+    "customer_name": "Umbrella Corp",
+    "invoice_id": "INV-2026-0601",
+    "month": "2026-06",
+    "status": "open",
+    "resolution": null,
+    "exception": null,
+    "slack_draft": null
+  }
+]

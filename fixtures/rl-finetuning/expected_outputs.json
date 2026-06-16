@@ -1,0 +1,71 @@
+{
+  "task_paid_in_full": {
+    "case_id": "case-1001",
+    "expected_status": "resolved",
+    "expected_resolution": "paid_in_full",
+    "expected_invoice_id": "INV-2026-0413",
+    "expected_payment_ids": ["PAY-8841"],
+    "expected_credit_memo_ids": [],
+    "expected_amount_due_cents": 12500000,
+    "expected_amount_paid_cents": 12500000,
+    "expected_exception": null,
+    "required_evidence_ids": ["INV-2026-0413", "PAY-8841"]
+  },
+  "task_partial_payment": {
+    "case_id": "case-1002",
+    "expected_status": "exception_open",
+    "expected_resolution": "partial_payment",
+    "expected_invoice_id": "INV-2026-0420",
+    "expected_payment_ids": ["PAY-8850"],
+    "expected_credit_memo_ids": [],
+    "expected_amount_due_cents": 8800000,
+    "expected_amount_paid_cents": 5000000,
+    "expected_amount_remaining_cents": 3800000,
+    "expected_exception": {
+      "reason": "partial_payment",
+      "amount_cents": 3800000
+    },
+    "required_evidence_ids": ["INV-2026-0420", "PAY-8850"]
+  },
+  "task_credit_memo_reconciled": {
+    "case_id": "case-1003",
+    "expected_status": "resolved",
+    "expected_resolution": "paid_after_credit_memo",
+    "expected_invoice_id": "INV-2026-0507",
+    "expected_payment_ids": ["PAY-8902"],
+    "expected_credit_memo_ids": ["CM-102"],
+    "expected_amount_due_cents": 4500000,
+    "expected_amount_paid_cents": 4000000,
+    "expected_credit_cents": 500000,
+    "expected_exception": null,
+    "required_evidence_ids": ["INV-2026-0507", "PAY-8902", "CM-102"]
+  },
+  "task_ambiguous_customer": {
+    "case_id": "case-1004",
+    "expected_status": "resolved",
+    "expected_resolution": "paid_in_full",
+    "expected_invoice_id": "INV-2026-0522",
+    "expected_payment_ids": ["PAY-8930"],
+    "expected_credit_memo_ids": [],
+    "expected_amount_due_cents": 6100000,
+    "expected_amount_paid_cents": 6100000,
+    "expected_exception": null,
+    "required_evidence_ids": ["cus_acme_hardware", "INV-2026-0522", "PAY-8930"],
+    "forbidden_evidence_ids": ["cus_acme_holdings", "INV-2026-0521", "PAY-8929"]
+  },
+  "task_missing_evidence": {
+    "case_id": "case-1005",
+    "expected_status": "escalated",
+    "expected_resolution": "missing_payment_evidence",
+    "expected_invoice_id": "INV-2026-0601",
+    "expected_payment_ids": [],
+    "expected_credit_memo_ids": [],
+    "expected_amount_due_cents": 14200000,
+    "expected_amount_paid_cents": 0,
+    "expected_exception": {
+      "reason": "missing_payment_evidence",
+      "amount_cents": 14200000
+    },
+    "required_evidence_ids": ["INV-2026-0601"]
+  }
+}

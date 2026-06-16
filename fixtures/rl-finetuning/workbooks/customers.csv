@@ -1,0 +1,7 @@
+customer_id,name,crm_account_id,region,collections_channel
+cus_northwind,Northwind Robotics,crm_001,NA,#collections
+cus_globex,Globex,crm_002,NA,#collections
+cus_initech,Initech,crm_003,NA,#collections
+cus_acme_holdings,Acme Holdings,crm_004,EU,#collections-emea
+cus_acme_hardware,Acme Hardware,crm_005,NA,#collections
+cus_umbrella,Umbrella Corp,crm_006,NA,#collections
