@@ -160,29 +160,43 @@ EVAL_TASK_IDS = {"task_missing_evidence"}
 # SyntheticMockEnvironment
 # ---------------------------------------------------------------------------
 
-class SyntheticMockEnvironment:
+def _make_synthetic_env_class():
     """
-    MockEnvironment extended with synthetic fixture data.
-    Subclasses MockEnvironment by injecting extra rows after initial load.
+    Factory: builds SyntheticMockEnvironment as a real MockEnvironment subclass.
+    Deferred so MockEnvironment is not imported at module level (avoids any
+    circular-import risk in the v2 package).
     """
+    from src.environment import MockEnvironment
 
-    def __new__(cls):
-        from src.environment import MockEnvironment
-        instance = MockEnvironment.__new__(MockEnvironment)
-        return instance
+    class SyntheticMockEnvironment(MockEnvironment):
+        """
+        MockEnvironment subclass with synthetic fixture data injected.
+        Adds 9 customers, 9 invoices, 9 payments, 3 credit memos, 8 cases
+        to support the V2 training-data expansion.
+        """
 
-    def __init__(self):
-        from src.environment import MockEnvironment
-        MockEnvironment.__init__(self)
-        # Inject synthetic rows into workbooks
-        self._workbooks["customers"]    += SYNTHETIC_CUSTOMERS
-        self._workbooks["invoices"]     += SYNTHETIC_INVOICES
-        self._workbooks["payments"]     += SYNTHETIC_PAYMENTS
-        self._workbooks["credit_memos"] += SYNTHETIC_CREDIT_MEMOS
-        # Inject synthetic cases
-        for case in SYNTHETIC_CASES:
-            self._initial_cases[case["case_id"]] = copy.deepcopy(case)
-        self.reset()
+        def __init__(self):
+            super().__init__()  # loads fixtures, calls reset()
+            # Inject synthetic rows into workbooks
+            self._workbooks["customers"]    += SYNTHETIC_CUSTOMERS
+            self._workbooks["invoices"]     += SYNTHETIC_INVOICES
+            self._workbooks["payments"]     += SYNTHETIC_PAYMENTS
+            self._workbooks["credit_memos"] += SYNTHETIC_CREDIT_MEMOS
+            # Inject synthetic cases
+            for case in SYNTHETIC_CASES:
+                self._initial_cases[case["case_id"]] = copy.deepcopy(case)
+            self.reset()  # re-reset so injected cases are in self.cases
+
+    return SyntheticMockEnvironment
+
+
+def SyntheticMockEnvironment():
+    """
+    Constructor shim that returns a properly subclassed instance.
+    Usage: env = SyntheticMockEnvironment()  (same API as before)
+    """
+    cls = _make_synthetic_env_class()
+    return cls()
 
 
 # ---------------------------------------------------------------------------
