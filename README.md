@@ -3,6 +3,8 @@
 A benchmark harness and finetuning pipeline for a finance collections workflow,
 built to the Manifold Labs take-home specification.
 
+**LoRA adapter:** https://huggingface.co/tangles2/acme-lora-qwen2.5-0.5b
+
 ---
 
 ## Setup
