@@ -204,24 +204,18 @@ class LoRAAgent:
         args = pa._build_args(tool, task, env)
         return tool, args
 
-    def run(self, task: dict, env: "MockEnvironment") -> list[dict]:
-        env.reset()
-        fallback_count = 0
+    def _enforce_required_reads(
+        self, parsed: tuple | None, task: dict, env: "MockEnvironment"
+    ) -> tuple[str, dict]:
+        """
+        Guard: if the model tries to call final_answer before completing the
+        four required reads, redirect to the next missing required tool instead.
+        This prevents mode collapse where the model shortcuts to final_answer.
+        """
+        REQUIRED = ["get_case", "lookup_customer", "search_invoices", "search_payments"]
+        called   = [s["tool"] for s in env.trace]
 
-        for _ in range(self.MAX_STEPS):
-            generated = self._generate(task, env.trace)
-            parsed    = _parse_tool_call(generated)
-
-            if parsed is None:
-                fallback_count += 1
-                tool, args = self._fallback_tool(task, env)
-            else:
-                tool, args = parsed
-
-            # Execute the tool
-            method = getattr(env, tool, None)
-            if method is None:
-                tool, args = self._fallback_tool(task, env)
-                method = getattr(env, tool)
-
-        
+        if parsed is not None and parsed[0] == "final_answer":
+            for req in REQUIRED:
+                if req not in called:
+   
