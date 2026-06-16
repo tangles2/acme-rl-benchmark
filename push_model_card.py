@@ -20,8 +20,6 @@ tags:
 - tool-calling
 - rl-finetuning
 - qwen2.5
-datasets:
-- custom (acme-rl-benchmark training traces)
 ---
 
 # acme-lora-qwen2.5-0.5b
