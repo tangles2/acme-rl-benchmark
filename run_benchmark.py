@@ -161,6 +161,21 @@ def main():
     if not no_lora:
         print("  LoRA adapter     : artifacts/lora_adapter/")
 
+    # ---- 5: Push model card to HuggingFace ----
+    print("\n[5/5] Pushing model card to HuggingFace ...")
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["python3", "push_model_card.py"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            print(f"  {result.stdout.strip()}")
+        else:
+            print(f"  Model card push failed (non-fatal): {result.stderr.strip()}")
+    except Exception as e:
+        print(f"  Model card push skipped: {e}")
+
 
 if __name__ == "__main__":
     main()
