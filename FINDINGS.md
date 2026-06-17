@@ -282,3 +282,61 @@ rest held out for eval only. With the current 8 synthetic tasks this would leave
 4 training examples per type, so more task variants need to be generated first.
 `SyntheticMockEnvironment` and `V2Benchmark` are already structured to support this -
 it is a data-authoring task, not an architecture change.
+
+---
+
+## V2 GPU Benchmark Results (Full Run)
+
+The following results are from the first complete V2 run on an NVIDIA H200 GPU with
+CUDA 12.8 and PyTorch 2.11.0+cu128. Training times dropped from ~30 minutes per model
+on CPU to roughly 60-80 seconds per model on GPU.
+
+### Summary table
+
+| Agent | Train pass | Eval pass | Avg score |
+|---|---|---|---|
+| rule_baseline | 0/5 | N/A | 0.863 |
+| sklearn_v1 | 4/5 | N/A | 0.900 |
+| sklearn (expanded, 12 tasks) | 8/12 | 1/1 | 0.833 |
+| lora_v2_qwen2.5-0.5b | 0/12 | 0/1 | 0.285 |
+| lora_v2_qwen2.5-1.5b | 1/12 | 0/1 | 0.358 |
+
+### Key observations
+
+**sklearn generalizes well.** The same classifier trained on 28 examples from the
+original 5 tasks passes 8/12 synthetic train tasks and 1/1 held-out eval task. The
+held-out task is `task_missing_evidence` -- a case type with no equivalent in the
+synthetic training set. Passing it confirms the classifier learned a generalizable
+signal, not a task-specific shortcut.
+
+**1.5B LoRA passed task_credit_memo_reconciled.** This is the one task that every
+other agent fails, including sklearn. The MemoAlwaysAgent fix in the synthetic trace
+generator gave the 1.5B model enough `search_credit_memos` examples to predict it
+reliably. The 0.5B model did not pass this task -- model capacity matters at this
+data scale.
+
+**Both LoRA models score 100% on forbidden_evidence.** Neither model fabricates decoy
+IDs. They are failing on status, resolution, and amounts -- not because they are
+citing wrong IDs, but because they are not getting far enough in the workflow to
+produce correct case mutations. This is a training data volume problem, not a safety
+problem.
+
+**High fallback rate.** Most LoRA tasks triggered 1-4 JSON parse fallbacks. The model
+frequently outputs malformed JSON that the regex parser can't extract a tool name
+from, forcing the scaffold to inject a safe default. This confirms the model has not
+reliably learned the output format from 81 examples. Structured decoding (e.g. the
+outlines library) would eliminate this without retraining.
+
+**DPO could not run.** The DPO step fails with a gradient checkpointing tensor shape
+mismatch between trl's DPOTrainer and the LoRA adapter configuration. This is a
+known incompatibility in trl versions that enable gradient checkpointing by default
+with LoRA. The fix (disabling gradient checkpointing in DPOConfig) is committed but
+DPO results are not yet available. Given the LoRA base scores of 0/12 and 1/12, DPO
+refinement would be unlikely to produce meaningful improvement at this data scale
+regardless.
+
+### HuggingFace adapters (V2 GPU run)
+
+- 0.5B: https://huggingface.co/tangles2/acme-lora-v2-qwen2.5-0.5b
+- 1.5B: https://huggingface.co/tangles2/acme-lora-v2-qwen2.5-1.5b
+

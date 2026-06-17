@@ -211,7 +211,7 @@ def dpo_train(adapter_path, base_model_name, traces, verbose=True):
         report_to                   = "none",
         remove_unused_columns       = False,
         max_length                  = 512,
-        gradient_checkpointing_kwargs = {"use_reentrant": False},
+        gradient_checkpointing      = False,
     )
 
     trainer = DPOTrainer(
