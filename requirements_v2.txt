@@ -1,2 +1,0 @@
-# All V2 dependencies are now included in requirements.txt.
-# This file is kept for reference only.
