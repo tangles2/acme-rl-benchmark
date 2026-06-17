@@ -1,7 +1,6 @@
 # Acme Finance Operations - RL Finetuning Benchmark
 
-A benchmark harness and finetuning pipeline for a finance collections workflow,
-built to the Manifold Labs take-home spec.
+A benchmark harness and finetuning pipeline for a finance collections workflow
 
 **LoRA adapter:** https://huggingface.co/tangles2/acme-lora-qwen2.5-0.5b
 
