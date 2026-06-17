@@ -31,7 +31,6 @@ parser.add_argument("--skip-synthetic",  action="store_true", help="Skip synthet
 parser.add_argument("--skip-dpo",        action="store_true", help="Skip DPO refinement step")
 parser.add_argument("--skip-lora",       action="store_true", help="Skip all LoRA training (runs baselines only)")
 parser.add_argument("--push-model-card", action="store_true", help="Push model card to HuggingFace after run (default: off)")
-parser.add_argument("--push-model-card",  action="store_true", help="Push model card to HuggingFace Hub after run (default: off)")
 args = parser.parse_args()
 
 print("=" * 60)
