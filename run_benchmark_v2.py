@@ -14,6 +14,7 @@ Usage:
     python3 run_benchmark_v2.py
     python3 run_benchmark_v2.py --skip-dpo
     python3 run_benchmark_v2.py --skip-synthetic
+    python3 run_benchmark_v2.py
     python3 run_benchmark_v2.py --no-sybil --skip-dpo
 """
 
@@ -57,10 +58,32 @@ baseline_agg     = Benchmark.aggregate(baseline_results)
 Benchmark.print_report("rule_baseline", baseline_results, baseline_agg)
 
 # ---------------------------------------------------------------------------
+# Step 1b: Sybil LLM baseline (zero-shot frontier model)
+# ---------------------------------------------------------------------------
+
+if args.no_sybil:
+    print("\n[1b] Skipping Sybil baseline (--no-sybil)")
+    sybil_results = None
+    sybil_agg = None
+else:
+    print("\n[1b] Running Sybil LLM baseline ...")
+    try:
+        from src.sybil_agent import SybilAgent
+        sybil_agent  = SybilAgent()
+        sybil_results = bench_v1.run_agent(sybil_agent)
+        sybil_agg     = Benchmark.aggregate(sybil_results)
+        Benchmark.print_report("sybil_llm_baseline", sybil_results, sybil_agg)
+    except Exception as e:
+        print(f"[1b] Sybil baseline failed (non-fatal): {e}")
+        sybil_results = None
+        sybil_agg = None
+
+
+# ---------------------------------------------------------------------------
 # Step 2: sklearn SFT on original traces (V1 policy, for comparison)
 # ---------------------------------------------------------------------------
 
-print("\n[2/6] Training sklearn policy on original traces ...")
+print("\n[3/7] Training sklearn policy on original traces ...")
 
 from src.train import train as train_sklearn
 
@@ -74,7 +97,7 @@ Benchmark.print_report("policy_sklearn_v1", sklearn_results, sklearn_agg)
 # ---------------------------------------------------------------------------
 
 if args.skip_synthetic:
-    print("\n[3/6] Skipping synthetic generation -- using original traces only ...")
+    print("\n[4/7] Skipping synthetic generation -- using original traces only ...")
     import json
     FIXTURES = Path(__file__).parent / "fixtures" / "rl-finetuning"
     combined_traces = []
@@ -83,9 +106,9 @@ if args.skip_synthetic:
             line = line.strip()
             if line:
                 combined_traces.append(json.loads(line))
-    print(f"[3/6] Using {len(combined_traces)} original traces")
+    print(f"[4/7] Using {len(combined_traces)} original traces")
 else:
-    print("\n[3/6] Generating synthetic traces ...")
+    print("\n[4/7] Generating synthetic traces ...")
     from src.v2.synthetic import build_combined_traces
     combined_traces = build_combined_traces()
 
@@ -94,10 +117,10 @@ else:
 # ---------------------------------------------------------------------------
 
 if args.skip_lora:
-    print("\n[4/6] Skipping LoRA training (--skip-lora)")
+    print("\n[5/7] Skipping LoRA training (--skip-lora)")
     trained_models = []
 else:
-    print("\n[4/6] Training LoRA models ...")
+    print("\n[5/7] Training LoRA models ...")
     from src.v2.multi_lora import train_all_models, MODEL_CONFIGS
     trained_models = train_all_models(combined_traces, configs=MODEL_CONFIGS, verbose=True)
 
@@ -112,7 +135,7 @@ env_v2   = SyntheticMockEnvironment()
 bench_v2 = V2Benchmark(env_v2)
 
 # Also run V1 sklearn on the expanded task set for apples-to-apples comparison
-print("\n[5/6] Running sklearn on expanded task set (train + eval split) ...")
+print("\n[6/7] Running sklearn on expanded task set (train + eval split) ...")
 sklearn_train, sklearn_eval = bench_v2.run_split(sklearn_agent)
 sklearn_train_agg = V2Benchmark.aggregate(sklearn_train)
 sklearn_eval_agg  = V2Benchmark.aggregate(sklearn_eval)
@@ -123,7 +146,7 @@ lora_summaries = []
 for config, adapter_path, hf_url in trained_models:
     slug  = config["slug"]
     name  = config["name"]
-    print(f"\n[5/6] Benchmarking {slug} ...")
+    print(f"\n[6/7] Benchmarking {slug} ...")
     try:
         agent = V2LoRAAgent(adapter_path=str(adapter_path), base_model=name)
         train_results, eval_results = bench_v2.run_split(agent)
@@ -138,23 +161,23 @@ for config, adapter_path, hf_url in trained_models:
             "eval_agg":   eval_agg,
         })
     except Exception as e:
-        print(f"[5/6] Benchmarking failed for {slug}: {e}")
+        print(f"[6/7] Benchmarking failed for {slug}: {e}")
 
 # ---------------------------------------------------------------------------
 # Step 6: DPO refinement on the best-scoring model
 # ---------------------------------------------------------------------------
 
 if args.skip_dpo or not trained_models:
-    print("\n[6/6] Skipping DPO step")
+    print("\n[7/7] Skipping DPO step")
     dpo_url = None
 else:
-    print("\n[6/6] Running DPO refinement on best model ...")
+    print("\n[7/7] Running DPO refinement on best model ...")
     # Pick the model with the best train-task strict pass rate
     if lora_summaries:
         best = max(lora_summaries, key=lambda x: x["train_agg"]["strict_pass_pct"])
         best_config   = next(c for c, _, _ in trained_models if c["slug"] == best["slug"])
         best_adapter  = next(p for c, p, _ in trained_models if c["slug"] == best["slug"])
-        print(f"[6/6] Best model: {best['slug']} (train pass rate {best['train_agg']['strict_pass_rate']})")
+        print(f"[7/7] Best model: {best['slug']} (train pass rate {best['train_agg']['strict_pass_rate']})")
         try:
             from src.v2.dpo_train import dpo_train
             dpo_path, dpo_url = dpo_train(
@@ -170,10 +193,10 @@ else:
                 V2Benchmark.print_report(f"dpo_{best['slug']} (train tasks)", dpo_train_r, dpo_train_agg)
                 V2Benchmark.print_report(f"dpo_{best['slug']} (eval tasks)",  dpo_eval_r,  dpo_eval_agg)
         except Exception as e:
-            print(f"[6/6] DPO failed: {e}")
+            print(f"[7/7] DPO failed: {e}")
             dpo_url = None
     else:
-        print("[6/6] No models trained successfully, skipping DPO")
+        print("[7/7] No models trained successfully, skipping DPO")
         dpo_url = None
 
 # ---------------------------------------------------------------------------
@@ -190,6 +213,8 @@ print(f"  {'Agent':<28} {'Train pass':>12} {'Eval pass':>12} {'Avg score':>10}")
 print(f"  {'-'*28} {'-'*12} {'-'*12} {'-'*10}")
 print(f"  {'rule_baseline':<28} {baseline_agg['strict_pass_rate']:>12} {'N/A':>12} {baseline_agg['avg_score']:>10}")
 print(f"  {'sklearn_v1':<28} {sklearn_agg['strict_pass_rate']:>12} {'N/A':>12} {sklearn_agg['avg_score']:>10}")
+if sybil_agg:
+    print(f"  {'sybil_llm_baseline':<28} {sybil_agg['strict_pass_rate']:>12} {'N/A':>12} {sybil_agg['avg_score']:>10}")
 print(f"  {'sklearn (expanded)':<28} {sklearn_train_agg['strict_pass_rate']:>12} {sklearn_eval_agg['strict_pass_rate']:>12} {sklearn_train_agg['avg_score']:>10}")
 for s in lora_summaries:
     print(f"  {('lora_v2_' + s['slug']):<28} {s['train_agg']['strict_pass_rate']:>12} {s['eval_agg']['strict_pass_rate']:>12} {s['train_agg']['avg_score']:>10}")
