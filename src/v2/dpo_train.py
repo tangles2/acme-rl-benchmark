@@ -211,7 +211,6 @@ def dpo_train(adapter_path, base_model_name, traces, verbose=True):
         report_to                   = "none",
         remove_unused_columns       = False,
         max_length                  = 512,
-        max_prompt_length           = 400,
     )
 
     trainer = DPOTrainer(
