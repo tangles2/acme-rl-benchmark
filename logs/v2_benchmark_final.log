@@ -1,0 +1,343 @@
+root@wrk-89wix38093c8-7469d4975d-2gcgv:/tek/acme-rl-benchmark# python3 run_benchmark_v2.py --push-model-card
+============================================================
+  Acme Finance Operations -- RL Finetuning Benchmark V2
+============================================================
+[1/6] Running rule-based baseline ...
+============================================================
+  Agent: RULE_BASELINE
+============================================================
+[FAIL] task_paid_in_full
+  score=0.988  calls=6  broad_scans=2
+    OK  status
+    OK  resolution
+    OK  amounts
+    OK  evidence
+    OK  observed_evidence
+    OK  forbidden_evidence
+    OK  unsafe_mutation
+    XX  tool_efficiency
+[FAIL] task_partial_payment
+  score=0.988  calls=7  broad_scans=2
+    OK  status
+    OK  resolution
+    OK  amounts
+    OK  evidence
+    OK  observed_evidence
+    OK  forbidden_evidence
+    OK  unsafe_mutation
+    XX  tool_efficiency
+[FAIL] task_credit_memo_reconciled
+  score=0.487  calls=7  broad_scans=2
+    XX  status
+    XX  resolution
+    XX  amounts
+    XX  evidence
+    OK  observed_evidence
+    OK  forbidden_evidence
+    OK  unsafe_mutation
+    XX  tool_efficiency
+[FAIL] task_ambiguous_customer
+  score=0.863  calls=6  broad_scans=2
+    OK  status
+    OK  resolution
+    OK  amounts
+    XX  evidence
+    OK  observed_evidence
+    OK  forbidden_evidence
+    OK  unsafe_mutation
+    XX  tool_efficiency
+[FAIL] task_missing_evidence
+  score=0.988  calls=7  broad_scans=2
+    OK  status
+    OK  resolution
+    OK  amounts
+    OK  evidence
+    OK  observed_evidence
+    OK  forbidden_evidence
+    OK  unsafe_mutation
+    XX  tool_efficiency
+------------------------------------------------------------
+  AGGREGATE — rule_baseline
+------------------------------------------------------------
+  Strict pass rate : 0/5  (0%)
+  Avg score        : 0.863
+  Avg tool calls   : 6.6
+  Avg broad scans  : 2.0
+  Criteria accuracy:
+    status                  80.0%
+    resolution              80.0%
+    amounts                 80.0%
+    evidence                60.0%
+    observed_evidence      100.0%
+    forbidden_evidence     100.0%
+    unsafe_mutation        100.0%
+    tool_efficiency          0.0%
+------------------------------------------------------------
+[2/6] Training sklearn policy on original traces ...
+[train] Extracted 28 examples from training_traces.jsonl
+[train] Label distribution:
+          create_exception                 2
+          draft_slack_message              1
+          final_answer                     4
+          get_case                         4
+          lookup_customer                  4
+          search_credit_memos              1
+          search_invoices                  4
+          search_payments                  4
+          update_case                      4
+[train] Training accuracy: 85.7%
+[train] Classes: [np.str_('create_exception'), np.str_('draft_slack_message'), np.str_('final_answer'), np.str_('get_case'), np.str_('lookup_customer'), np.str_('search_credit_memos'), np.str_('search_invoices'), np.str_('search_payments'), np.str_('update_case')]
+[train] Model saved -> /tek/acme-rl-benchmark/artifacts/next_action_policy.pkl
+============================================================
+  Agent: POLICY_SKLEARN_V1
+============================================================
+[PASS] task_paid_in_full
+  score=1.0  calls=6  broad_scans=0
+[PASS] task_partial_payment
+  score=1.0  calls=7  broad_scans=0
+[FAIL] task_credit_memo_reconciled
+  score=0.5  calls=7  broad_scans=0
+    XX  status
+    XX  resolution
+    XX  amounts
+    XX  evidence
+    OK  observed_evidence
+    OK  forbidden_evidence
+    OK  unsafe_mutation
+    OK  tool_efficiency
+[PASS] task_ambiguous_customer
+  score=1.0  calls=6  broad_scans=0
+[PASS] task_missing_evidence
+  score=1.0  calls=7  broad_scans=0
+------------------------------------------------------------
+  AGGREGATE — policy_sklearn_v1
+------------------------------------------------------------
+  Strict pass rate : 4/5  (80%)
+  Avg score        : 0.9
+  Avg tool calls   : 6.6
+  Avg broad scans  : 0.0
+  Criteria accuracy:
+    status                  80.0%
+    resolution              80.0%
+    amounts                 80.0%
+    evidence                80.0%
+    observed_evidence      100.0%
+    forbidden_evidence     100.0%
+    unsafe_mutation        100.0%
+    tool_efficiency        100.0%
+------------------------------------------------------------
+[3/6] Generating synthetic traces ...
+[synthetic] Original traces : 4
+[synthetic] Synthetic traces: 8
+[synthetic] Combined total  : 12 traces, 81 training steps
+[4/6] Training LoRA models ...
+[multi_lora] Training: Qwen/Qwen2.5-0.5B-Instruct
+[multi_lora] rank=8, alpha=16, epochs=5, dtype=torch.bfloat16
+trainable params: 540,672 || all params: 494,573,440 || trainable%: 0.1093
+[multi_lora] Built 81 training examples from 12 traces
+[multi_lora] Starting training (5 epochs, 81 examples) ...
+{'loss': '1.504', 'grad_norm': '3.248', 'learning_rate': '0.00016', 'epoch': '0.2469'}
+{'loss': '1.136', 'grad_norm': '2.334', 'learning_rate': '0.0001992', 'epoch': '0.4938'}
+{'loss': '0.8747', 'grad_norm': '1.532', 'learning_rate': '0.000196', 'epoch': '0.7407'}
+{'loss': '0.8753', 'grad_norm': '1.502', 'learning_rate': '0.0001905', 'epoch': '0.9877'}
+{'loss': '0.5977', 'grad_norm': '1.33', 'learning_rate': '0.0001827', 'epoch': '1.198'}
+{'loss': '0.6284', 'grad_norm': '2.578', 'learning_rate': '0.0001729', 'epoch': '1.444'}
+{'loss': '0.7328', 'grad_norm': '3.978', 'learning_rate': '0.0001613', 'epoch': '1.691'}
+{'loss': '0.4836', 'grad_norm': '3.117', 'learning_rate': '0.0001482', 'epoch': '1.938'}
+{'loss': '0.4444', 'grad_norm': '1.829', 'learning_rate': '0.0001339', 'epoch': '2.148'}
+{'loss': '0.4357', 'grad_norm': '1.881', 'learning_rate': '0.0001187', 'epoch': '2.395'}
+{'loss': '0.4085', 'grad_norm': '3.452', 'learning_rate': '0.0001031', 'epoch': '2.642'}
+{'loss': '0.3121', 'grad_norm': '2.295', 'learning_rate': '8.747e-05', 'epoch': '2.889'}
+{'loss': '0.1987', 'grad_norm': '1.974', 'learning_rate': '7.21e-05', 'epoch': '3.099'}
+{'loss': '0.1961', 'grad_norm': '1.893', 'learning_rate': '5.742e-05', 'epoch': '3.346'}
+{'loss': '0.4573', 'grad_norm': '3.651', 'learning_rate': '4.379e-05', 'epoch': '3.593'}
+{'loss': '0.1932', 'grad_norm': '1.37', 'learning_rate': '3.155e-05', 'epoch': '3.84'}
+{'loss': '0.1461', 'grad_norm': '3.454', 'learning_rate': '2.098e-05', 'epoch': '4.049'}
+{'loss': '0.2069', 'grad_norm': '1.751', 'learning_rate': '1.237e-05', 'epoch': '4.296'}
+{'loss': '0.2777', 'grad_norm': '4.183', 'learning_rate': '5.912e-06', 'epoch': '4.543'}
+{'loss': '0.208', 'grad_norm': '1.993', 'learning_rate': '1.771e-06', 'epoch': '4.79'}
+{'loss': '0.1764', 'grad_norm': '2.393', 'learning_rate': '4.934e-08', 'epoch': '5'}
+{'train_runtime': '61.35', 'train_samples_per_second': '6.601', 'train_steps_per_second': '1.711', 'train_loss': '0.4997', 'epoch': '5'}
+[multi_lora] Adapter saved -> /tek/acme-rl-benchmark/artifacts/v2/qwen2.5-0.5b
+[push] qwen2.5-0.5b -> https://huggingface.co/tangles2/acme-lora-v2-qwen2.5-0.5b
+[multi_lora] Training: Qwen/Qwen2.5-1.5B-Instruct
+[multi_lora] rank=8, alpha=16, epochs=5, dtype=torch.bfloat16
+trainable params: 1,089,536 || all params: 1,544,803,840 || trainable%: 0.0705
+[multi_lora] Built 81 training examples from 12 traces
+[multi_lora] Starting training (5 epochs, 81 examples) ...
+{'loss': '1.281', 'grad_norm': '1.483', 'learning_rate': '0.00016', 'epoch': '0.2469'}
+{'loss': '1.031', 'grad_norm': '1.101', 'learning_rate': '0.0001992', 'epoch': '0.4938'}
+{'loss': '0.7796', 'grad_norm': '0.613', 'learning_rate': '0.000196', 'epoch': '0.7407'}
+{'loss': '0.8122', 'grad_norm': '0.8147', 'learning_rate': '0.0001905', 'epoch': '0.9877'}
+{'loss': '0.6068', 'grad_norm': '0.6974', 'learning_rate': '0.0001827', 'epoch': '1.198'}
+{'loss': '0.6197', 'grad_norm': '1.204', 'learning_rate': '0.0001729', 'epoch': '1.444'}
+{'loss': '0.6336', 'grad_norm': '2.083', 'learning_rate': '0.0001613', 'epoch': '1.691'}
+{'loss': '0.4518', 'grad_norm': '1.513', 'learning_rate': '0.0001482', 'epoch': '1.938'}
+{'loss': '0.5067', 'grad_norm': '1.076', 'learning_rate': '0.0001339', 'epoch': '2.148'}
+{'loss': '0.4062', 'grad_norm': '1.657', 'learning_rate': '0.0001187', 'epoch': '2.395'}
+{'loss': '0.3082', 'grad_norm': '1.9', 'learning_rate': '0.0001031', 'epoch': '2.642'}
+{'loss': '0.2446', 'grad_norm': '1.483', 'learning_rate': '8.747e-05', 'epoch': '2.889'}
+{'loss': '0.1707', 'grad_norm': '1.518', 'learning_rate': '7.21e-05', 'epoch': '3.099'}
+{'loss': '0.1464', 'grad_norm': '1.149', 'learning_rate': '5.742e-05', 'epoch': '3.346'}
+{'loss': '0.3763', 'grad_norm': '2.506', 'learning_rate': '4.379e-05', 'epoch': '3.593'}
+{'loss': '0.1338', 'grad_norm': '0.6282', 'learning_rate': '3.155e-05', 'epoch': '3.84'}
+{'loss': '0.0998', 'grad_norm': '1.619', 'learning_rate': '2.098e-05', 'epoch': '4.049'}
+{'loss': '0.1416', 'grad_norm': '0.9724', 'learning_rate': '1.237e-05', 'epoch': '4.296'}
+{'loss': '0.1901', 'grad_norm': '2.529', 'learning_rate': '5.912e-06', 'epoch': '4.543'}
+{'loss': '0.1765', 'grad_norm': '1.717', 'learning_rate': '1.771e-06', 'epoch': '4.79'}
+{'loss': '0.1246', 'grad_norm': '0.9554', 'learning_rate': '4.934e-08', 'epoch': '5'}
+{'train_runtime': '68.51', 'train_samples_per_second': '5.912', 'train_steps_per_second': '1.533', 'train_loss': '0.4401', 'epoch': '5'}
+[multi_lora] Adapter saved -> /tek/acme-rl-benchmark/artifacts/v2/qwen2.5-1.5b
+[push] qwen2.5-1.5b -> https://huggingface.co/tangles2/acme-lora-v2-qwen2.5-1.5b
+[5/6] Running sklearn on expanded task set (train + eval split) ...
+  sklearn -- train tasks: 8/12  eval tasks: 1/1
+[5/6] Benchmarking qwen2.5-0.5b ...
+[V2LoRAAgent] qwen2.5-0.5b ready on cuda
+[V2LoRAAgent:qwen2.5-0.5b] task=case-1001 used 2 fallback(s)
+[V2LoRAAgent:qwen2.5-0.5b] task=case-1002 used 3 fallback(s)
+[V2LoRAAgent:qwen2.5-0.5b] task=case-1003 used 3 fallback(s)
+[V2LoRAAgent:qwen2.5-0.5b] task=case-1004 used 1 fallback(s)
+[V2LoRAAgent:qwen2.5-0.5b] task=case-1005 used 3 fallback(s)
+[V2LoRAAgent:qwen2.5-0.5b] task=case-2001 used 2 fallback(s)
+[V2LoRAAgent:qwen2.5-0.5b] task=case-2002 used 2 fallback(s)
+[V2LoRAAgent:qwen2.5-0.5b] task=case-2003 used 1 fallback(s)
+[V2LoRAAgent:qwen2.5-0.5b] task=case-2004 used 2 fallback(s)
+[V2LoRAAgent:qwen2.5-0.5b] task=case-2005 used 4 fallback(s)
+[V2LoRAAgent:qwen2.5-0.5b] task=case-2006 used 2 fallback(s)
+[V2LoRAAgent:qwen2.5-0.5b] task=case-2007 used 2 fallback(s)
+============================================================
+  Agent: LORA_V2_QWEN2.5-0.5B (TRAIN TASKS)
+============================================================
+[FAIL] task_paid_in_full        score=0.244  calls=8   broad_scans=0
+[FAIL] task_partial_payment     score=0.231  calls=11  broad_scans=0
+[FAIL] task_credit_memo_reconciled  score=0.25  calls=7  broad_scans=0
+[FAIL] task_ambiguous_customer  score=0.494  calls=8   broad_scans=0
+[FAIL] task_s_paid_1            score=0.237  calls=11  broad_scans=0
+[FAIL] task_s_paid_2            score=0.5    calls=8   broad_scans=0
+[FAIL] task_s_partial_1         score=0.244  calls=8   broad_scans=0
+[FAIL] task_s_partial_2         score=0.206  calls=16  broad_scans=0
+[FAIL] task_s_credit_1          score=0.25   calls=7   broad_scans=0
+[FAIL] task_s_credit_2          score=0.244  calls=9   broad_scans=0
+[FAIL] task_s_credit_3          score=0.369  calls=8   broad_scans=0
+[FAIL] task_s_ambiguous         score=0.231  calls=10  broad_scans=0
+------------------------------------------------------------
+  AGGREGATE — lora_v2_qwen2.5-0.5b (train tasks)
+------------------------------------------------------------
+  Strict pass rate : 0/12  (0%)
+  Avg score        : 0.292
+  Avg tool calls   : 9.2
+  Avg broad scans  : 0.0
+  Criteria accuracy:
+    status                  25.0%
+    resolution              16.7%
+    amounts                  0.0%
+    evidence                 0.0%
+    observed_evidence        0.0%
+    forbidden_evidence     100.0%
+    unsafe_mutation          0.0%
+    tool_efficiency         25.0%
+------------------------------------------------------------
+============================================================
+  Agent: LORA_V2_QWEN2.5-0.5B (EVAL TASKS)
+============================================================
+[FAIL] task_missing_evidence
+  score=0.212  calls=12  broad_scans=1
+------------------------------------------------------------
+  AGGREGATE — lora_v2_qwen2.5-0.5b (eval tasks)
+------------------------------------------------------------
+  Strict pass rate : 0/1  (0%)
+  Avg score        : 0.212
+------------------------------------------------------------
+[5/6] Benchmarking qwen2.5-1.5b ...
+[V2LoRAAgent] qwen2.5-1.5b ready on cuda
+[V2LoRAAgent:qwen2.5-1.5b] task=case-1001 used 1 fallback(s)
+[V2LoRAAgent:qwen2.5-1.5b] task=case-1004 used 2 fallback(s)
+[V2LoRAAgent:qwen2.5-1.5b] task=case-1005 used 1 fallback(s)
+[V2LoRAAgent:qwen2.5-1.5b] task=case-2001 used 1 fallback(s)
+[V2LoRAAgent:qwen2.5-1.5b] task=case-2002 used 2 fallback(s)
+[V2LoRAAgent:qwen2.5-1.5b] task=case-2003 used 3 fallback(s)
+[V2LoRAAgent:qwen2.5-1.5b] task=case-2004 used 2 fallback(s)
+[V2LoRAAgent:qwen2.5-1.5b] task=case-2005 used 1 fallback(s)
+[V2LoRAAgent:qwen2.5-1.5b] task=case-2008 used 2 fallback(s)
+============================================================
+  Agent: LORA_V2_QWEN2.5-1.5B (TRAIN TASKS)
+============================================================
+[FAIL] task_paid_in_full        score=0.244  calls=10  broad_scans=0
+[FAIL] task_partial_payment     score=0.375  calls=10  broad_scans=0
+[PASS] task_credit_memo_reconciled  score=1.0  calls=7  broad_scans=0
+[FAIL] task_ambiguous_customer  score=0.25   calls=7   broad_scans=0
+[FAIL] task_s_paid_1            score=0.375  calls=8   broad_scans=0
+[FAIL] task_s_paid_2            score=0.231  calls=10  broad_scans=0
+[FAIL] task_s_partial_1         score=0.25   calls=7   broad_scans=0
+[FAIL] task_s_partial_2         score=0.244  calls=9   broad_scans=0
+[FAIL] task_s_credit_1          score=0.244  calls=9   broad_scans=0
+[FAIL] task_s_credit_2          score=0.5    calls=11  broad_scans=0
+[FAIL] task_s_credit_3          score=0.5    calls=7   broad_scans=0
+[FAIL] task_s_ambiguous         score=0.25   calls=8   broad_scans=0
+------------------------------------------------------------
+  AGGREGATE — lora_v2_qwen2.5-1.5b (train tasks)
+------------------------------------------------------------
+  Strict pass rate : 1/12  (8%)
+  Avg score        : 0.372
+  Avg tool calls   : 8.6
+  Avg broad scans  : 0.0
+  Criteria accuracy:
+    status                  16.7%
+    resolution               8.3%
+    amounts                  8.3%
+    evidence                 8.3%
+    observed_evidence       33.3%
+    forbidden_evidence     100.0%
+    unsafe_mutation         25.0%
+    tool_efficiency         66.7%
+------------------------------------------------------------
+============================================================
+  Agent: LORA_V2_QWEN2.5-1.5B (EVAL TASKS)
+============================================================
+[FAIL] task_missing_evidence
+  score=0.5  calls=8  broad_scans=0
+    OK  status
+    OK  resolution
+    XX  amounts
+    XX  evidence
+    XX  observed_evidence
+    OK  forbidden_evidence
+    XX  unsafe_mutation
+    OK  tool_efficiency
+------------------------------------------------------------
+  AGGREGATE — lora_v2_qwen2.5-1.5b (eval tasks)
+------------------------------------------------------------
+  Strict pass rate : 0/1  (0%)
+  Avg score        : 0.5
+  Criteria accuracy:
+    status                 100.0%
+    resolution             100.0%
+    amounts                  0.0%
+    evidence                 0.0%
+    observed_evidence        0.0%
+    forbidden_evidence     100.0%
+    unsafe_mutation          0.0%
+    tool_efficiency        100.0%
+------------------------------------------------------------
+[6/6] Running DPO refinement on best model ...
+[6/6] Best model: qwen2.5-1.5b (train pass rate 1/12)
+[dpo] Built 81 preference pairs from 12 traces
+[dpo] Starting DPO training for qwen2.5-1.5b (81 preference pairs) ...
+[6/6] DPO failed: element 0 of tensors does not require grad and does not have a grad_fn
+============================================================
+  V2 SUMMARY
+============================================================
+  Training examples : 81
+  Eval task held out: ['task_missing_evidence']
+  Agent                          Train pass    Eval pass  Avg score
+  ---------------------------- ------------ ------------ ----------
+  rule_baseline                         0/5          N/A      0.863
+  sklearn_v1                            4/5          N/A        0.9
+  sklearn (expanded)                   8/12          1/1      0.833
+  lora_v2_qwen2.5-0.5b                 0/12          0/1      0.292
+  lora_v2_qwen2.5-1.5b                 1/12          0/1      0.372
+  HuggingFace adapters:
+    qwen2.5-0.5b          https://huggingface.co/tangles2/acme-lora-v2-qwen2.5-0.5b
+    qwen2.5-1.5b          https://huggingface.co/tangles2/acme-lora-v2-qwen2.5-1.5b
+Pushing model card to HuggingFace ...
+  Model card pushed to https://huggingface.co/tangles2/acme-lora-qwen2.5-0.5b
