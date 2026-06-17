@@ -1,7 +1,7 @@
-# Acme Finance Operations — RL Finetuning Benchmark
+# Acme Finance Operations - RL Finetuning Benchmark
 
 A benchmark harness and finetuning pipeline for a finance collections workflow,
-built to the Manifold Labs take-home specification.
+built to the Manifold Labs take-home spec.
 
 **LoRA adapter:** https://huggingface.co/tangles2/acme-lora-qwen2.5-0.5b
 
@@ -41,14 +41,22 @@ acme-rl-benchmark/
 │   ├── agents.py                    # BaselineAgent + PolicyAgent
 │   ├── benchmark.py                 # scoring harness (8 criteria)
 │   ├── train.py                     # sklearn SFT pipeline
-│   ├── sybil_agent.py               # LLM baseline via Sybil API (Targon GPT-OSS-20B)
+│   ├── sybil_agent.py               # LLM baseline via Sybil API
 │   ├── lora_train.py                # LoRA fine-tuning (Qwen2.5-0.5B-Instruct)
 │   └── lora_agent.py                # inference agent wrapping LoRA adapter
+├── src/v2/                          # V2 pipeline (multi-model, synthetic traces, DPO)
+│   ├── synthetic.py
+│   ├── multi_lora.py
+│   └── dpo_train.py
+├── tests/                           # pytest unit tests
+│   ├── test_environment.py
+│   └── test_scorer.py
 ├── artifacts/                       # created on first run
-│   ├── next_action_policy.pkl       # sklearn trained model
-│   └── lora_adapter/                # LoRA adapter weights (after training)
-├── FINDINGS.md                      # run results, failure analysis, improvements
-├── run_benchmark.py                 # single entry point
+│   ├── next_action_policy.pkl
+│   └── lora_adapter/
+├── FINDINGS.md                      # run results and failure analysis
+├── run_benchmark.py                 # V1 entry point
+├── run_benchmark_v2.py              # V2 entry point (multi-model + DPO)
 └── requirements.txt
 ```
 
@@ -63,21 +71,35 @@ python3 run_benchmark.py
 # Skip Sybil LLM baseline (no API key needed)
 python3 run_benchmark.py --no-sybil
 
-# Skip LoRA step (sklearn only, runs on any laptop in under 5 seconds)
+# Skip LoRA step entirely (sklearn only, runs on any laptop in under 5 seconds)
 python3 run_benchmark.py --no-sybil --no-lora
+
+# V2 pipeline (multi-model LoRA, synthetic traces, DPO)
+python3 run_benchmark_v2.py --skip-dpo
 ```
 
-The full pipeline runs four steps in sequence:
+The V1 pipeline runs four steps:
 
-1. **Sybil LLM baseline** — `openai/gpt-oss-20b` via the Sybil API. Establishes the
-   quality ceiling a fine-tuned small model should approach. Requires `SYBIL_API_KEY`
-   environment variable.
-2. **sklearn SFT** — extracts (context → next-tool) pairs from `training_traces.jsonl`,
-   fits a TF-IDF + LogisticRegression classifier, saves artifact to `artifacts/`.
-3. **PolicyAgent** — runs the trained sklearn classifier against all five tasks;
-   prints a before/after delta versus the rule-based baseline.
-4. **LoRA fine-tuning + inference** — fine-tunes Qwen2.5-0.5B-Instruct with LoRA on
-   the same traces, saves adapter to `artifacts/lora_adapter/`, scores all five tasks.
+1. **Sybil LLM baseline** - `openai/gpt-oss-20b` via the Sybil API. Sets the quality
+   ceiling a fine-tuned small model should approach. Requires `SYBIL_API_KEY`.
+2. **sklearn SFT** - extracts (context -> next-tool) pairs from `training_traces.jsonl`,
+   fits TF-IDF + LogisticRegression, saves artifact to `artifacts/`.
+3. **PolicyAgent** - runs the trained classifier on all five tasks and prints a
+   before/after delta vs the rule-based baseline.
+4. **LoRA fine-tuning** - fine-tunes Qwen2.5-0.5B-Instruct with LoRA on the same
+   traces, saves adapter to `artifacts/lora_adapter/`, scores all five tasks.
+
+---
+
+## Tests
+
+```bash
+pip install pytest --break-system-packages
+python3 -m pytest tests/ -v
+```
+
+40 tests covering all 8 scoring criteria, unsafe mutation detection, broad scan
+counting, observed evidence checks, and integer amount math.
 
 ---
 
@@ -87,21 +109,21 @@ The full pipeline runs four steps in sequence:
 
 Loads fixture CSVs into memory. Implements all nine tools from `tool_schema.json`:
 
-`get_case` · `lookup_customer` · `search_invoices` · `search_payments` ·
-`search_credit_memos` · `update_case` · `create_exception` ·
-`draft_slack_message` · `final_answer`
+`get_case` / `lookup_customer` / `search_invoices` / `search_payments` /
+`search_credit_memos` / `update_case` / `create_exception` /
+`draft_slack_message` / `final_answer`
 
-Tracks per-run state: observed evidence IDs, broad-scan count, unsafe-mutation flag.
+Tracks per-run state: observed evidence IDs, broad scan count, unsafe mutation flag.
 Resets completely before each task.
 
-Unsafe mutations raise the flag rather than throwing, so the scorer can report them
-without crashing the run:
-- `update_case(status="resolved")` before observing both invoice and payment evidence.
-- `create_exception` without a cited invoice ID.
-- Citing evidence IDs that were never returned by any tool call.
+Unsafe mutations set the flag rather than throwing an exception, so the scorer can
+report them without crashing the run:
+- `update_case(status="resolved")` before observing both invoice and payment evidence
+- `create_exception` without a cited invoice ID
+- Citing evidence IDs that were never returned by a prior tool call
 
 Broad scan: any `search_invoices` call without `invoice_id` or `month`, or any
-`search_payments` call without `invoice_id`, counts as one broad scan (−0.05/scan).
+`search_payments` call without `invoice_id`, adds one to the broad scan count (-0.05/scan).
 
 ### Baseline agent (`BaselineAgent`)
 
@@ -109,66 +131,64 @@ Five deliberate weaknesses that mirror common model failure modes:
 
 | Weakness | Effect on scoring |
 |---|---|
-| Broad `search_invoices` (no filter) | efficiency penalty (broad scan) |
-| Broad `search_payments` (no filter) | efficiency penalty (broad scan) |
+| Broad `search_invoices` (no filter) | efficiency penalty |
+| Broad `search_payments` (no filter) | efficiency penalty |
 | Never calls `search_credit_memos` | fails `task_credit_memo_reconciled` |
 | Skips `draft_slack_message` | missed Slack evidence |
 | Omits `customer_id` from evidence | fails ambiguous-customer evidence check |
 
 ### Sybil LLM baseline (`src/sybil_agent.py`)
 
-Uses the OpenAI-compatible Sybil API (`https://api.sybil.com/v1`) with model
-`openai/gpt-oss-20b`. Converts all nine tools to OpenAI function-calling JSON schema
-and runs a tool-calling loop against the mock environment (max 14 steps).
-
-Set `SYBIL_API_KEY` to run. The agent falls back to the rule-based baseline if the
-API key is missing or the endpoint is unreachable.
+Uses the OpenAI-compatible Sybil API with model `openai/gpt-oss-20b`. Converts all
+nine tools to OpenAI function-calling schema and runs a tool-calling loop against
+the mock environment (max 14 steps). Set `SYBIL_API_KEY` to run.
 
 ### sklearn PolicyAgent (`PolicyAgent`)
 
-Hybrid design: safety invariants enforced by rules; the two genuinely uncertain
-decisions are made by learned parameters.
+Hybrid design: rules handle the deterministic parts, the trained classifier handles
+the two decisions that actually require learning.
 
-**Phase 1 — required reads (always enforced):**
-`get_case` → `lookup_customer` → `search_invoices(narrow)` → `search_payments(narrow)`
+**Phase 1 - required reads (always enforced):**
+`get_case` -> `lookup_customer` -> `search_invoices(narrow)` -> `search_payments(narrow)`
 
-Arguments always include `invoice_id` and `month` filters; no broad scans possible.
+Arguments always include filters so broad scans are not possible.
 
-**Phase 2 — learned decisions (trained classifier):**
+**Phase 2 - learned decisions (trained classifier):**
 - Should we call `search_credit_memos`?
 - Should we call `draft_slack_message` after a paid-in-full resolution?
 
-Both decisions come exclusively from parameters trained on `training_traces.jsonl`.
+Both come from parameters trained on `training_traces.jsonl`.
 
-**Phase 3 — safe mutations (rule-enforced):**
-`create_exception` (if needed) → `update_case` → `final_answer`.
-Correct ordering is guaranteed regardless of classifier output.
+**Phase 3 - safe mutations (rule-enforced):**
+`create_exception` (if needed) -> `update_case` -> `final_answer`
+
+Ordering is guaranteed regardless of what the classifier output.
 
 ### sklearn finetuning pipeline (`src/train.py`)
 
-1. Parses `training_traces.jsonl`; each step becomes one training example.
-   - **Input (X):** task description + tool names called so far + key result values
-   - **Label (y):** next tool name to call
-   - 4 traces × 7 steps = 28 training examples, 9 classes
-2. Fits `TfidfVectorizer(ngram_range=(1,2), sublinear_tf=True)`.
-3. Fits `LogisticRegression(C=1.0, max_iter=1000)`.
-4. Saves model to `artifacts/next_action_policy.pkl`.
+1. Parses `training_traces.jsonl` - each step becomes one training example.
+   - **X:** task description + tool names called so far + key result values
+   - **y:** next tool name to call
+   - 4 traces x 7 steps = 28 training examples, 9 classes
+2. Fits `TfidfVectorizer(ngram_range=(1,2), sublinear_tf=True)`
+3. Fits `LogisticRegression(C=1.0, max_iter=1000)`
+4. Saves model to `artifacts/next_action_policy.pkl`
 
 Training accuracy on fixture traces: **85.7%**
 
-### LoRA fine-tuning pipeline (`src/lora_train.py` + `src/lora_agent.py`)
+### LoRA fine-tuning (`src/lora_train.py` + `src/lora_agent.py`)
 
-Fine-tunes Qwen/Qwen2.5-0.5B-Instruct using PEFT LoRA (rank=8, alpha=16, targeting
-`q_proj` and `v_proj`). Trains for 5 epochs on the same 28 (prompt, completion) pairs,
-formatted as ChatML. Only 540k of 494M parameters are trained (0.11%).
+Fine-tunes Qwen/Qwen2.5-0.5B-Instruct with PEFT LoRA (rank=8, alpha=16, targeting
+`q_proj` and `v_proj`). Trains for 5 epochs on 28 (prompt, completion) pairs formatted
+as ChatML. Only 540k of 494M parameters are updated (0.11%).
 
-Auto-detects GPU at runtime: uses bfloat16 on CUDA hardware with bf16 support,
-float16 on older CUDA, float32 on CPU.
+Auto-detects GPU at runtime: bfloat16 on CUDA with bf16 support, float16 on older
+CUDA, float32 on CPU.
 
-The `LoRAAgent` runs greedy inference and parses the model output as JSON tool calls.
-A required-reads guard prevents mode collapse (model calling `final_answer` before
-completing the four required reads). Falls back to the sklearn PolicyAgent when
-generation is unparseable.
+The `LoRAAgent` runs greedy inference and parses output as JSON tool calls. A
+required-reads guard blocks `final_answer` until the four required reads are done,
+which fixes the mode collapse issue from Run 1. Falls back to sklearn PolicyAgent
+when generation is unparseable.
 
 ---
 
@@ -192,34 +212,36 @@ generation is unparseable.
 | unsafe_mutation | 100% | 100% |
 | tool_efficiency | 0% | **100%** |
 
-**What changed after training:**
-- Broad scans eliminated (policy always uses narrow filters).
-- Evidence accuracy improved: policy correctly cites `customer_id` for ambiguous-customer cases.
-- Slack draft added for resolved paid-in-full cases (learned from trace).
+What changed after training:
+- Broad scans eliminated (policy always uses narrow filters)
+- Evidence accuracy up: policy correctly cites `customer_id` for ambiguous customer cases
+- Slack draft added for paid-in-full resolutions (learned from trace)
 
-See `FINDINGS.md` for full failure analysis, LoRA results, and improvement proposals.
+See `FINDINGS.md` for full failure analysis, LoRA results, and what to improve next.
 
 ---
 
 ## Failure Cases
 
-### 1. `task_credit_memo_reconciled` — all agents fail
+### 1. `task_credit_memo_reconciled` - all agents fail
 
 `search_credit_memos` appears only once in 28 training examples. The classifier
-probability for this class is near-uniform (0.053) at the decision point, making
-it unreliable. Without the credit memo check, the agent sees payment (4,000,000¢)
-< invoice (4,500,000¢) and incorrectly opens a partial-payment exception.
+probability at the decision point is near-uniform (0.053), so it rarely gets picked.
+Without the credit memo check, the agent sees payment (4,000,000 cents) less than
+invoice (4,500,000 cents) and opens a partial payment exception instead of resolving
+as `paid_after_credit_memo`. A few more training traces that include this tool would
+fix it.
 
-### 2. `task_paid_in_full` (baseline) — efficiency-only failure
+### 2. `task_paid_in_full` (baseline) - efficiency-only failure
 
-Passes all correctness checks but loses on tool efficiency (2 broad scans, no filters).
-The trained policy eliminates this.
+Passes all correctness checks but loses on tool efficiency from 2 broad scans.
+The trained policy fixes this completely.
 
 ### 3. LoRA mode collapse (Run 1)
 
-The fine-tuned LoRA agent called `final_answer` immediately on every task, scoring 0/5.
-With only 28 examples, the model converged on the lowest-penalty strategy rather than
-the correct workflow. See FINDINGS.md for full analysis and the mitigation implemented.
+The LoRA agent called `final_answer` first on every single task in Run 1, scoring 0/5.
+With only 28 examples, the model found the lowest-penalty path rather than the correct
+workflow. Fixed by adding the required-reads guard in `lora_agent.py`. See FINDINGS.md.
 
 ---
 
@@ -227,64 +249,93 @@ the correct workflow. See FINDINGS.md for full analysis and the mitigation imple
 
 | Risk | Mitigation |
 |---|---|
-| **Resolve without reading invoice/payment evidence** | `update_case(status="resolved")` sets `unsafe_mutation=True` if the case invoice ID has not been observed in a prior `search_invoices` result, or if no payment ID has been observed. |
-| **Always escalate to avoid wrong answers** | Escalation requires an invoice evidence ID in `create_exception`. Escalating without reading the invoice triggers `unsafe_mutation`. |
-| **Read entire workbooks (broad scans)** | Any `search_invoices` call without `invoice_id`/`month`, or `search_payments` without `invoice_id`, increments `broad_scan_count`. Score is penalized −0.05 per scan. |
-| **Cite IDs that were never observed** | `observed_evidence` criterion checks that every ID in `final_answer.evidence_ids` appears in `env.observed_ids`. Fabricated IDs fail this check even if final state is correct. |
-| **Overfitting to public fixture names** | The ambiguous-customer task includes decoy IDs (`cus_acme_holdings`, `INV-2026-0521`) that are plausible matches. Citing them triggers `forbidden_evidence` failure. |
-| **Passing final-state checks with wrong supporting evidence** | The scorer checks both `evidence` (required IDs cited) and `observed_evidence` (all cited IDs actually returned). A model cannot fabricate IDs to pass correctness checks. |
+| **Resolve without reading invoice/payment** | `update_case(status="resolved")` sets `unsafe_mutation=True` if the case invoice or any payment has not been observed in a prior tool result |
+| **Always escalate to avoid wrong answers** | `create_exception` requires an invoice ID in evidence. Escalating without reading the invoice triggers `unsafe_mutation` |
+| **Read entire workbooks** | Any unfiltered `search_invoices` or `search_payments` call increments `broad_scan_count`. Score is penalized -0.05 per scan |
+| **Cite IDs that were never observed** | `observed_evidence` checks that every ID in `final_answer.evidence_ids` appears in `env.observed_ids`. Fabricated IDs fail even if the final state is correct |
+| **Overfitting to fixture names** | The ambiguous customer task includes decoy IDs (`cus_acme_holdings`, `INV-2026-0521`) that are plausible matches. Citing them triggers `forbidden_evidence` failure |
+| **Wrong evidence with correct final state** | The scorer checks both `evidence` (required IDs cited) and `observed_evidence` (all cited IDs actually returned). You cannot fabricate IDs to pass |
 
 ---
 
 ## Discussion Topics
 
-**Production path:** Replace the sklearn classifier with a LoRA-finetuned small LM
-trained on analyst-labeled traces. The Phase 1 / Phase 3 safety scaffolding stays the
-same; only the Phase 2 classifier is upgraded.
+**Production path:** Swap the sklearn classifier out for a LoRA-finetuned small LM
+trained on analyst-labeled traces. The Phase 1 and Phase 3 safety scaffolding stays
+the same - only Phase 2 gets upgraded.
 
-**Collecting training traces:** Embed a trace logger in the existing analyst workflow.
-When an analyst closes a case, log every lookup and decision. Flag traces where the
-analyst had to revise a decision (strong negative signal).
+**Collecting training traces:** Add a trace logger to the existing analyst workflow.
+When an analyst closes a case, log every lookup and decision. Flag traces where
+the analyst revised a decision - those are strong negative signal.
 
 **Hidden eval split:** Reserve one complete customer scenario that no training trace
 touches. Never tune on it.
 
-**Reward design vs. product metrics:** Product metric = analyst hours saved. Reward
-metric = correct status + correct evidence in minimum tool calls. These can diverge:
-a model that always escalates saves zero hours but avoids wrong resolutions. Track both
-separately; alarm if escalation rate spikes.
+**Reward design vs. product metrics:** Product metric is analyst hours saved. Reward
+metric is correct status plus correct evidence in minimum tool calls. These can
+diverge - a model that always escalates avoids wrong resolutions but saves zero hours.
+Track both separately and alert if escalation rate spikes without a drop in analyst
+corrections.
 
-**SFT vs. DPO vs. GRPO:** SFT is correct here given clean demonstration traces. Add
-DPO once you have (correct, incorrect) pairs from analyst corrections. GRPO/RLVR makes
-sense when you want the model to explore beyond the demonstration distribution — this
-benchmark's verifier is already the right shape for that reward signal.
+**SFT vs. DPO vs. GRPO:** SFT is the right starting point with clean demonstration
+traces. Add DPO once you have (correct, incorrect) pairs from analyst corrections.
+GRPO makes sense when you want the model to explore beyond the demonstration
+distribution - this benchmark's verifier is already the right shape for that.
 
 ---
 
 ## Design Tradeoffs
 
-**Hybrid agent over end-to-end LM.** The PolicyAgent splits responsibility: deterministic rules enforce the required read sequence and safe mutation ordering; a trained classifier handles only the two genuinely uncertain decisions (check credit memos? send Slack?). This keeps the benchmark honest — the trained component can only influence outcomes it should influence — but it means the system would need restructuring before a pure LM could own the whole trace.
+**Hybrid agent instead of end-to-end LM.** The PolicyAgent splits things up: rules
+handle the required read sequence and safe mutation ordering, and the trained
+classifier only touches the two uncertain decisions. The downside is that a pure LM
+would need the whole structure reworked before it could own the full trace.
 
-**sklearn over LoRA for the core result.** A TF-IDF + LogisticRegression classifier is interpretable, CPU-friendly, and trainable in under a second. It scores 4/5 on the original tasks without a GPU. The LoRA path shows the production direction (small LM, adapter-based fine-tuning) but requires far more training data than the 28 fixture examples provide. Both are included because the comparison is informative: more data beats bigger model at this scale.
+**sklearn for the core result.** TF-IDF + LogisticRegression is interpretable,
+CPU-only, and trains in under a second. It scores 4/5 without a GPU. The LoRA path
+shows where this goes in production, but it needs a lot more data than 28 examples
+to work reliably. Including both shows the tradeoff clearly: at this data scale, the
+simpler model wins.
 
-**Integer cents throughout.** All money values are stored and compared as `int` (cents). No divisions, no `float()` casts on amounts. This eliminates floating-point rounding as a failure mode. The one float in the codebase is the 0.05-per-scan efficiency penalty, which applies to scores, not amounts.
+**Integer cents throughout.** All money values are stored and compared as `int`.
+No divisions, no `float()` calls on amounts. The only float in the codebase is the
+0.05-per-scan efficiency penalty, which is applied to scores, not amounts.
 
-**Mock environment over live API.** The benchmark runs entirely in-memory against fixture CSVs. This makes runs deterministic, fast (~2 seconds), and reviewable without credentials. The tradeoff is that the mock is permissive — it accepts `None` arguments and returns empty results rather than raising errors, which can hide argument bugs. A production environment would validate inputs.
+**In-memory mock instead of live API.** Runs are deterministic, fast (~2 seconds),
+and need no credentials. The downside is the mock is permissive - it accepts `None`
+arguments and returns empty results rather than raising errors, so argument bugs can
+hide. A production environment would validate inputs strictly.
 
-**V2 synthetic traces share tasks with their eval set.** The V2 pipeline generates training traces by running the V1 PolicyAgent on synthetic tasks, then evaluates LoRA models on those same tasks. This is a known leakage: V2 LoRA scores on synthetic tasks are optimistic. The original five tasks (V1 fixtures) are clean — they are never touched during synthetic generation — and `task_missing_evidence` is held out entirely from both generation and synthetic training. See FINDINGS.md for details.
+**V2 synthetic traces share tasks with their eval set.** The V2 pipeline generates
+training traces by running PolicyAgent on synthetic tasks, then evaluates LoRA on
+those same tasks. That is a known leakage issue. The original five tasks are clean
+and `task_missing_evidence` is held out entirely. V2 LoRA scores on synthetic tasks
+should be read as optimistic. See FINDINGS.md for the full explanation.
 
 ---
 
 ## What I Would Improve With More Time
 
-**More training data before a bigger model.** The LoRA result (0/5) shows that 28 examples is not enough for a generative model to learn this workflow. The next step is generating 200–500 traces using the data flywheel in `run_benchmark_v2.py`, not switching to a larger base model.
+**More training data first.** The LoRA result (0/5 in Run 1, heavy fallback use in
+Run 2) shows 28 examples is not enough. The next step is generating 200-500 traces
+using the data flywheel in `run_benchmark_v2.py`, not switching to a bigger model.
 
-**Argument validation in the mock.** `search_invoices(customer_id=None)` currently silently returns nothing. Adding a `ValueError` for missing required fields would make agent bugs immediately visible rather than manifesting as wrong resolutions downstream.
+**Argument validation in the mock.** Right now `search_invoices(customer_id=None)`
+silently returns nothing. Adding a `ValueError` for missing required fields would
+surface argument bugs immediately instead of letting them show up as wrong resolutions.
 
-**Idempotency guards on mutations.** Calling `update_case` or `create_exception` twice silently overwrites. A billing-safe environment should flag or reject duplicate mutation calls. The idempotency tests in `tests/test_environment.py` document the current behavior explicitly.
+**Idempotency guards on mutations.** Calling `update_case` or `create_exception` twice
+silently overwrites. A billing workflow should flag or reject that. The tests in
+`tests/test_environment.py` document the current behavior as a known gap.
 
-**Hidden eval split with no leakage.** The V2 synthetic tasks should be split at generation time: half used for training traces, half held out for eval only. Currently only `task_missing_evidence` is truly held out.
+**Clean hidden eval split for V2.** The synthetic tasks should be split at generation
+time - some for training traces, some held out for eval only. Right now only
+`task_missing_evidence` is truly held out.
 
-**Structured decoding.** The LoRA agent parses free-text JSON output with a regex fallback. Constrained generation (e.g., `outlines` library) would eliminate parse failures entirely and remove the need for the fallback to PolicyAgent.
+**Structured decoding.** The LoRA agent parses free-text JSON with a regex fallback.
+Constrained generation (e.g. the outlines library) would cut the fallback rate to near
+zero without retraining.
 
-**Cost and latency metrics.** The scorer tracks tool calls and broad scans but not wall-clock latency or token count. For a production system where Acme is choosing between models on cost vs. accuracy, these matter as much as pass rate.
+**Cost and latency metrics.** The scorer tracks tool calls and broad scans but not
+wall time or token count. For a production comparison between models, those matter
+as much as pass rate.
