@@ -1,3 +1,2 @@
-# V2 additional dependencies (on top of requirements.txt)
-trl>=0.8.0
-huggingface_hub>=0.20.0
+# All V2 dependencies are now included in requirements.txt.
+# This file is kept for reference only.

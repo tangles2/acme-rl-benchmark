@@ -286,6 +286,14 @@ diverge - a model that always escalates avoids wrong resolutions but saves zero 
 Track both separately and alert if escalation rate spikes without a drop in analyst
 corrections.
 
+**Monitoring for reward hacking after deployment:** Log escalation rate, broad scan
+rate, and evidence fabrication rate as separate production metrics alongside pass
+rate. A spike in escalation rate without a corresponding drop in analyst correction
+tickets means the model found the "always escalate" shortcut. A drop in broad scan
+rate with rising incorrect resolutions means it learned to fake narrow lookups.
+Shadow-score every live trace with the benchmark verifier and alert on any metric
+moving more than one standard deviation from the training distribution.
+
 **SFT vs. DPO vs. GRPO:** SFT is the right starting point with clean demonstration
 traces. Add DPO once you have (correct, incorrect) pairs from analyst corrections.
 GRPO makes sense when you want the model to explore beyond the demonstration
