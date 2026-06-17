@@ -80,7 +80,7 @@ def score_task(
     resolution_ok = case_state.get("resolution") == exp["expected_resolution"]
 
     # Amount accuracy: check against final_answer text and case exception.
-    amounts_ok = _check_amounts(case_state, final_ans, exp)
+    amounts_ok = _check_amounts(case_state, final_ans, exp, trace=env.trace)
 
     # Required evidence cited in final_answer.
     evidence_ok = required_ids.issubset(cited_ids)
@@ -94,9 +94,10 @@ def score_task(
     # No unsafe mutation flag was set during the run.
     unsafe_mutation_ok = not env.unsafe_mutation
 
-    # Tool efficiency: start at 1.0, subtract per broad scan.
-    efficiency = max(0.0, 1.0 - env.broad_scan_count * BROAD_SCAN_PENALTY)
-    efficiency_ok = env.broad_scan_count == 0
+    # Tool efficiency: penalise broad scans and redundant identical narrow calls.
+    redundant = getattr(env, "redundant_call_count", 0)
+    efficiency = max(0.0, 1.0 - (env.broad_scan_count + redundant) * BROAD_SCAN_PENALTY)
+    efficiency_ok = env.broad_scan_count == 0 and redundant == 0
 
     # ---- aggregate ---------------------------------------------------
 
@@ -117,30 +118,64 @@ def score_task(
     total = (binary_score * len(criteria) - (1 if efficiency_ok else 0) + efficiency) / len(criteria)
 
     return {
-        "task_id":       task_id,
-        "strict_pass":   strict_pass,
-        "criteria":      criteria,
-        "total":         round(total, 3),
-        "broad_scans":   env.broad_scan_count,
-        "tool_calls":    len(env.trace),
-        "cited_ids":     sorted(cited_ids),
-        "observed_ids":  sorted(observed_ids),
+        "task_id":           task_id,
+        "strict_pass":       strict_pass,
+        "criteria":          criteria,
+        "total":             round(total, 3),
+        "broad_scans":       env.broad_scan_count,
+        "redundant_calls":   getattr(env, "redundant_call_count", 0),
+        "tool_calls":        len(env.trace),
+        "cited_ids":         sorted(cited_ids),
+        "observed_ids":      sorted(observed_ids),
     }
 
 
-def _check_amounts(case_state: dict, final_ans: dict, exp: dict) -> bool:
+def _extract_from_trace(trace: list, tool_name: str) -> list:
+    """Return the result list from the most recent call to tool_name, or []."""
+    for step in reversed(trace):
+        if step["tool"] == tool_name:
+            r = step["result"]
+            return r if isinstance(r, list) else []
+    return []
+
+
+def _check_amounts(case_state: dict, final_ans: dict, exp: dict, trace: list = None) -> bool:
     """
     Verify integer cent amounts.
 
-    For 'paid_in_full': check the exception is None and amounts balance.
-    For 'partial_payment' / 'missing_payment_evidence': check exception amount.
+    For resolved cases: check no exception is open AND that the observed
+    payment + credit memo totals match expected_amount_paid_cents /
+    expected_credit_cents to the cent.
+
+    For exception/escalated cases: check exception amount matches expected.
     """
     expected_status = exp["expected_status"]
+    trace = trace or []
 
     if expected_status == "resolved":
         # No exception should be open.
         if case_state.get("exception") is not None:
             return False
+
+        # Verify actual payment and credit-memo totals from the trace.
+        exp_invoice_id   = exp.get("expected_invoice_id", "")
+        exp_paid_cents   = exp.get("expected_amount_paid_cents")
+        exp_credit_cents = exp.get("expected_credit_cents", 0)
+
+        if exp_paid_cents is not None:
+            payments = _extract_from_trace(trace, "search_payments")
+            relevant = [p for p in payments if p.get("invoice_id") == exp_invoice_id]
+            total_paid = sum(int(p["amount_cents"]) for p in relevant)
+            if total_paid != exp_paid_cents:
+                return False
+
+        if exp_credit_cents:
+            memos = _extract_from_trace(trace, "search_credit_memos")
+            relevant_m = [m for m in memos if m.get("invoice_id") == exp_invoice_id]
+            total_credit = sum(int(m["amount_cents"]) for m in relevant_m)
+            if total_credit != exp_credit_cents:
+                return False
+
         return True
 
     if expected_status == "exception_open":

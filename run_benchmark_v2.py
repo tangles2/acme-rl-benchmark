@@ -30,6 +30,8 @@ parser.add_argument("--no-sybil",        action="store_true", help="Skip Sybil L
 parser.add_argument("--skip-synthetic",  action="store_true", help="Skip synthetic trace generation (use V1 traces only)")
 parser.add_argument("--skip-dpo",        action="store_true", help="Skip DPO refinement step")
 parser.add_argument("--skip-lora",       action="store_true", help="Skip all LoRA training (runs baselines only)")
+parser.add_argument("--push-model-card", action="store_true", help="Push model card to HuggingFace after run (default: off)")
+parser.add_argument("--push-model-card",  action="store_true", help="Push model card to HuggingFace Hub after run (default: off)")
 args = parser.parse_args()
 
 print("=" * 60)
@@ -203,19 +205,22 @@ if dpo_url:
 print()
 
 # ---------------------------------------------------------------------------
-# Push model card to HuggingFace
+# Push model card to HuggingFace (opt-in via --push-model-card)
 # ---------------------------------------------------------------------------
 
-print("Pushing model card to HuggingFace ...")
-try:
-    import subprocess
-    result = subprocess.run(
-        ["python3", "push_model_card.py"],
-        capture_output=True, text=True
-    )
-    if result.returncode == 0:
-        print(f"  {result.stdout.strip()}")
-    else:
-        print(f"  Model card push failed (non-fatal): {result.stderr.strip()}")
-except Exception as e:
-    print(f"  Model card push skipped: {e}")
+if args.push_model_card:
+    print("Pushing model card to HuggingFace ...")
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["python3", "push_model_card.py"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            print(f"  {result.stdout.strip()}")
+        else:
+            print(f"  Model card push failed (non-fatal): {result.stderr.strip()}")
+    except Exception as e:
+        print(f"  Model card push skipped: {e}")
+else:
+    print("[info] Model card push skipped. Pass --push-model-card to enable.")
