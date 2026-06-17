@@ -112,7 +112,8 @@ def run_lora(bench, verbose=True):
 
 def main():
     no_sybil = "--no-sybil" in sys.argv
-    no_lora  = "--no-lora"  in sys.argv
+    no_lora       = "--no-lora"        in sys.argv
+    push_mc       = "--push-model-card" in sys.argv
 
     print("=" * 60)
     print("  Acme Finance Operations — RL Finetuning Benchmark")
@@ -161,20 +162,23 @@ def main():
     if not no_lora:
         print("  LoRA adapter     : artifacts/lora_adapter/")
 
-    # ---- 5: Push model card to HuggingFace ----
-    print("\n[5/5] Pushing model card to HuggingFace ...")
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["python3", "push_model_card.py"],
-            capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            print(f"  {result.stdout.strip()}")
-        else:
-            print(f"  Model card push failed (non-fatal): {result.stderr.strip()}")
-    except Exception as e:
-        print(f"  Model card push skipped: {e}")
+    # ---- 5: Push model card to HuggingFace (opt-in) ----
+    if push_mc:
+        print("\n[5/5] Pushing model card to HuggingFace ...")
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["python3", "push_model_card.py"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                print(f"  {result.stdout.strip()}")
+            else:
+                print(f"  Model card push failed (non-fatal): {result.stderr.strip()}")
+        except Exception as e:
+            print(f"  Model card push skipped: {e}")
+    else:
+        print("\n[5/5] Model card push skipped. Pass --push-model-card to enable.")
 
 
 if __name__ == "__main__":

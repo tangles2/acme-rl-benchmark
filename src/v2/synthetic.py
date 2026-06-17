@@ -247,17 +247,66 @@ class V2Benchmark:
 # Synthetic trace collection
 # ---------------------------------------------------------------------------
 
+# Task IDs that require search_credit_memos -- PolicyAgent never calls it,
+# so we use a wrapper that forces the call for these tasks.
+_CREDIT_MEMO_TASK_IDS = {
+    "task_s_credit_1", "task_s_credit_2", "task_s_credit_3",
+}
+
+
+class _MemoAlwaysAgent:
+    """
+    Wraps PolicyAgent and forces search_credit_memos before Phase 3 for any
+    task that requires it.  Fixes the flywheel: PolicyAgent's classifier never
+    predicts search_credit_memos (appears once in 28 examples), so left alone
+    it generates traces with the wrong outcome for credit-memo tasks.
+    """
+
+    def __init__(self, policy_agent):
+        self._p = policy_agent
+        self.name = "memo_always"
+
+    def run(self, task, env):
+        env.reset()
+        REQUIRED = ["get_case", "lookup_customer", "search_invoices", "search_payments"]
+        for _ in range(20):
+            called = [s["tool"] for s in env.trace]
+            # Phase 1: required reads
+            next_tool = None
+            for req in REQUIRED:
+                if req not in called:
+                    next_tool = req
+                    break
+            # Inject credit memo read before Phase 3
+            if next_tool is None and "search_credit_memos" not in called:
+                next_tool = "search_credit_memos"
+            # Fall through to PolicyAgent for the rest
+            if next_tool is None:
+                next_tool = self._p._select_next_tool(task, env)
+            args = self._p._build_args(next_tool, task, env)
+            getattr(env, next_tool)(**args)
+            if next_tool == "final_answer":
+                break
+        return env.trace
+
+
 def collect_synthetic_traces(policy_agent):
     """
-    Run PolicyAgent on all synthetic tasks and return traces in the same
+    Run agents on all synthetic tasks and return traces in the same
     format as training_traces.jsonl -- ready to be combined with originals.
+
+    Credit-memo tasks use _MemoAlwaysAgent so the traces contain
+    search_credit_memos calls with the correct outcome, fixing the class
+    imbalance that the plain PolicyAgent cannot address.
     """
-    env    = SyntheticMockEnvironment()
-    traces = []
+    env        = SyntheticMockEnvironment()
+    memo_agent = _MemoAlwaysAgent(policy_agent)
+    traces     = []
 
     for task in SYNTHETIC_TASKS:
         env.reset()
-        policy_agent.run(task, env)
+        agent = memo_agent if task["task_id"] in _CREDIT_MEMO_TASK_IDS else policy_agent
+        agent.run(task, env)
         messages = []
         for step in env.trace:
             messages.append({

@@ -217,6 +217,12 @@ What changed after training:
 - Evidence accuracy up: policy correctly cites `customer_id` for ambiguous customer cases
 - Slack draft added for paid-in-full resolutions (learned from trace)
 
+**Important caveat:** A follow-up audit found that a constant "always call search_credit_memos"
+rule scores 5/5 while the trained sklearn classifier only scores 4/5. The Phase 1 and Phase 3
+safety scaffolding is doing most of the heavy lifting. The classifier's learned decisions are
+improving on average score and efficiency, but they are not the reason the system passes. A
+re-read of these results should credit the scaffolding design over the learning step.
+
 See `FINDINGS.md` for full failure analysis, LoRA results, and what to improve next.
 
 ---
@@ -229,8 +235,11 @@ See `FINDINGS.md` for full failure analysis, LoRA results, and what to improve n
 probability at the decision point is near-uniform (0.053), so it rarely gets picked.
 Without the credit memo check, the agent sees payment (4,000,000 cents) less than
 invoice (4,500,000 cents) and opens a partial payment exception instead of resolving
-as `paid_after_credit_memo`. A few more training traces that include this tool would
-fix it.
+as `paid_after_credit_memo`.
+
+Note: the audit found that a constant "always call search_credit_memos" rule solves this
+and scores 5/5. The synthetic V2 flywheel now generates credit memo traces via a dedicated
+MemoAlwaysAgent to fix the class imbalance before LoRA training.
 
 ### 2. `task_paid_in_full` (baseline) - efficiency-only failure
 

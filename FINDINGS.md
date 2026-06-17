@@ -55,6 +55,30 @@ about.
 
 ---
 
+## Finding 1b - Trained classifier is not load-bearing; scaffolding is
+
+An audit of the scoring results revealed that a constant "always call search_credit_memos"
+rule scores 5/5 while the trained sklearn classifier only scores 4/5. This means the
+Phase 1 / Phase 3 deterministic scaffolding in PolicyAgent (required reads, safe mutation
+ordering, hard-coded final_answer schema) is responsible for passing the benchmark, not
+the learned classifier.
+
+The classifier does improve average score and eliminates broad scans, but neither of those
+changes crosses a task from failing to passing in the current benchmark. The practical
+takeaway: if you want to know what is doing the work here, it is the scaffolding design,
+not the training step.
+
+This is worth stating clearly because the naive interpretation of "4/5 after SFT" makes it
+sound like the model learned to do the job. What actually happened is the scaffolding
+already knew how to do most of it, and the model learned a few stylistic improvements on
+top. The classifier would need to make better decisions on the task boundaries (credit memo
+vs partial payment) before it earns the credit.
+
+The V2 synthetic flywheel (MemoAlwaysAgent) is a step toward fixing the underlying data
+problem for LoRA fine-tuning.
+
+---
+
 ## Finding 2 - sklearn still beats LoRA at this data scale
 
 sklearn passed 4/5 tasks. LoRA passed 3/5 and actually regressed on
@@ -109,6 +133,11 @@ as `paid_after_credit_memo`.
 
 This is a data problem. A handful of additional traces that use `search_credit_memos`
 would likely fix it for both sklearn and LoRA.
+
+The V2 flywheel now includes a MemoAlwaysAgent that forces search_credit_memos calls for
+credit memo synthetic tasks, which should address this class imbalance before LoRA training.
+The audit also confirmed that a constant "always check memos" rule resolves this task, so
+the fix direction is clear -- the model just needs to see enough examples to learn it.
 
 ---
 

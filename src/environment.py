@@ -63,15 +63,31 @@ class MockEnvironment:
         self.trace: list[dict]      = []   # full tool call log
         self.observed_ids: set[str] = set() # IDs returned by tool results
         self.broad_scan_count: int  = 0
+        self.redundant_call_count: int = 0  # narrow calls repeated with identical args
         self.unsafe_mutation: bool  = False
         # Track whether invoice and payment evidence have been observed
         # (used for unsafe-mutation detection in update_case).
         self._invoice_ids_observed: set[str] = set()
         self._payment_ids_observed: set[str] = set()
+        # Track (tool, frozenset(args)) seen so far to detect redundant calls.
+        self._call_signatures: set = set()
+
+    # Read-only tools whose repeated identical calls add no information.
+    _READ_TOOLS = frozenset({
+        "get_case", "lookup_customer", "search_invoices",
+        "search_payments", "search_credit_memos",
+    })
 
     def _log(self, name: str, args: dict, result) -> object:
         """Append a tool call to the trace and return the result."""
         self.trace.append({"tool": name, "args": args, "result": result})
+        # Penalise redundant narrow read calls (identical tool + args repeated).
+        if name in self._READ_TOOLS:
+            sig = (name, tuple(sorted(args.items())))
+            if sig in self._call_signatures:
+                self.redundant_call_count += 1
+            else:
+                self._call_signatures.add(sig)
         return result
 
     # ------------------------------------------------------------------

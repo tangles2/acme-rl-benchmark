@@ -1,2 +1,8 @@
 scikit-learn
-opena
+openai
+torch
+transformers
+peft
+datasets
+trl>=0.8.0
+huggingface_hub>=0.20.0
